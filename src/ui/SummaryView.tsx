@@ -8,27 +8,33 @@ import { SLOT_LABEL, type AppState, type Slot } from '../engine/types';
 import type { Ctx } from './App';
 import { Chip, getMe } from './common';
 import { SlipView } from './SlipView';
+import { SwapView, swapText } from './SwapView';
+import { swapsOf } from '../engine/swaps';
 import { personHistory, weekendRoleLabel, weekendRoleLoad } from '../engine/usage';
 
 
 export function SummaryView(ctx: Ctx) {
-  const [view, setView] = useState<'person' | 'slip' | 'pattern'>('person');
+  const [view, setView] = useState<'person' | 'slip' | 'pattern' | 'swap'>('person');
   return (
     <div>
-      <div className="seg no-print">
+      <div className="seg seg-nowrap no-print">
         <button className={view === 'person' ? 'seg-on' : ''} onClick={() => setView('person')}>
-          👤 รายคน
+          รายคน
         </button>
         <button className={view === 'slip' ? 'seg-on' : ''} onClick={() => setView('slip')}>
-          🧾 ใบเวรน้อย
+          ใบเวรน้อย
         </button>
         <button className={view === 'pattern' ? 'seg-on' : ''} onClick={() => setView('pattern')}>
-          🔁 แพทเทิร์น
+          แพทเทิร์น
+        </button>
+        <button className={view === 'swap' ? 'seg-on' : ''} onClick={() => setView('swap')}>
+          ฝาก/ยืม
         </button>
       </div>
       {view === 'person' && <PersonSummary {...ctx} />}
       {view === 'slip' && <SlipView {...ctx} />}
       {view === 'pattern' && <PatternSummary state={ctx.state} month={ctx.month} />}
+      {view === 'swap' && <SwapView state={ctx.state} month={ctx.month} />}
     </div>
   );
 }
@@ -49,6 +55,9 @@ function PersonSummary({ state, requests, month }: Ctx) {
     (f) => Object.values(f.people).includes(id) && (f.start.startsWith(month) || f.end.startsWith(month) || f.eve.startsWith(month)),
   );
   const mine = requests.filter((r) => r.personId === id).sort((a, b) => a.date.localeCompare(b.date));
+  const swaps = swapsOf(state, [month]);
+  const gave = swaps.filter((x) => x.from === id);
+  const took = swaps.filter((x) => x.to === id);
   const bitsOn = (d: string) =>
     (['O', 'I', 'S', 'PM', 'N', 'SMC'] as const).reduce((m, s) => (state.days[d]?.[s] === id ? m | BIT[s] : m), 0);
 
@@ -104,6 +113,30 @@ function PersonSummary({ state, requests, month }: Ctx) {
           ))}
         </ul>
       </section>
+
+      {(gave.length > 0 || took.length > 0) && (
+        <section className="card">
+          <h3>ฝาก/ยืมเวรเดือนนี้</h3>
+          <ul className="req-list">
+            {gave.map((it) => (
+              <li key={`g${it.date}${it.slot}`}>
+                <span className="grow">
+                  ฝาก <Chip person={state.people.find((x) => x.id === it.to)} small /> อยู่แทน
+                </span>
+                <span className="muted small">{swapText(it)}</span>
+              </li>
+            ))}
+            {took.map((it) => (
+              <li key={`t${it.date}${it.slot}`}>
+                <span className="grow">
+                  อยู่แทน <Chip person={state.people.find((x) => x.id === it.from)} small />
+                </span>
+                <span className="muted small">{swapText(it)}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section className="card">
         <h3>คำขอเดือนนี้ ({mine.length})</h3>

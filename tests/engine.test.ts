@@ -8,6 +8,7 @@ import { changedMonths, describeChange, holidayChange } from '../src/engine/holi
 import { firstNameOnly, printName } from '../src/engine/names';
 import { rateFor, slipFor } from '../src/engine/pay';
 import { personHistory, queueLastUse, weekendRoleLabel, weekendRoleLoad } from '../src/engine/usage';
+import { nextBaseline, swapBalances, swapPairs, swapsOf, syncBaselines, withBaselines } from '../src/engine/swaps';
 import { seedState, SEED_HOLIDAYS, SEED_TEMPLATES } from '../src/engine/seed';
 import { findIssues, summarizeMonth } from '../src/engine/summary';
 import { SLOTS, type AppState, type GenerateMode, type ShiftRequest } from '../src/engine/types';
@@ -525,5 +526,67 @@ describe('ข้อมูล พ.ย. 69', () => {
     expect(m.months['2026-11'].noWeekend).toEqual(['mod', 'saeng']);
     expect(queueLastUse(m).noWeekend?.get('mod')?.month).toBe('2026-11');
     expect(personHistory(m, 'saeng', ['2026-11']).map((e) => e.text)).toEqual(['ไม่อยู่ ส-อา พฤศจิกายน 2569']);
+  });
+});
+
+describe('ฝาก/ยืมเวร', () => {
+  const gen = (s: AppState, mode: GenerateMode): AppState => {
+    const r = generateMonth(s, [], '2026-12', { seed: 4, iterations: 10_000, mode });
+    return {
+      ...s,
+      days: r.days,
+      months: { ...s.months, '2026-12': { ...r.record, baseline: nextBaseline('2026-12', s.days, r.days, s.months['2026-12'], mode === 'all') } },
+    };
+  };
+  const edit = (s: AppState, date: string, slot: 'PM' | 'N', id: string): AppState => ({
+    ...s,
+    days: { ...s.days, [date]: { ...s.days[date], [slot]: id } },
+  });
+
+  it('แก้ช่องหลังจัด = เจ้าของเดิมฝากให้คนที่อยู่จริง', () => {
+    let s = gen(arrangeAll(seedState()), 'all');
+    const owner = s.days['2026-12-15'].PM!;
+    const other = s.people.find((p) => p.id !== owner && p.active)!.id;
+    s = edit(s, '2026-12-15', 'PM', other);
+    expect(swapsOf(s, ['2026-12'])).toEqual([{ date: '2026-12-15', slot: 'PM', from: owner, to: other }]);
+    const bal = swapBalances(swapsOf(s, ['2026-12']));
+    expect(bal.find((b) => b.id === owner)).toMatchObject({ gave: 1, took: 0 });
+    expect(bal.find((b) => b.id === other)).toMatchObject({ gave: 0, took: 1 });
+    // แก้กลับ = ไม่มีค้าง
+    s = edit(s, '2026-12-15', 'PM', owner);
+    expect(swapsOf(s, ['2026-12'])).toEqual([]);
+  });
+
+  it('แลกกันสองเวร หักลบกันเป็นคู่', () => {
+    let s = gen(arrangeAll(seedState()), 'all');
+    const a = s.days['2026-12-15'].PM!;
+    const b = s.days['2026-12-16'].PM!;
+    s = edit(edit(s, '2026-12-15', 'PM', b), '2026-12-16', 'PM', a);
+    const pairs = swapPairs(swapsOf(s, ['2026-12']));
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0].aToB).toHaveLength(1);
+    expect(pairs[0].bToA).toHaveLength(1);
+  });
+
+  it('จัดบางขั้นใหม่ไม่ลบการแลกในส่วนที่ระบบไม่ได้แตะ, จัดเทศกาลใหม่ไม่นับเป็นการฝาก', () => {
+    let s = gen(arrangeAll(seedState()), 'all');
+    const sat = '2026-12-12';
+    const owner = s.days[sat].PM!;
+    const other = s.people.find((p) => p.id !== owner && p.active && !Object.values(s.days[sat]).includes(p.id))!.id;
+    s = { ...s, days: { ...s.days, [sat]: { ...s.days[sat], PM: other } } };
+    s = gen(s, 'rest'); // จัดวันธรรมดาใหม่ ไม่แตะเสาร์
+    expect(swapsOf(s, ['2026-12']).filter((x) => x.date === sat)).toEqual([{ date: sat, slot: 'PM', from: owner, to: other }]);
+
+    const [ny] = listFestivalBlocks(s, '2026-12', 1);
+    const r = arrangeFestival(s, [], ny, { seed: 99 });
+    if (!('state' in r)) throw new Error(r.error);
+    const synced = syncBaselines(s, r.state);
+    expect(swapsOf(synced, ['2026-12']).filter((x) => x.date >= '2026-12-30')).toEqual([]);
+  });
+
+  it('ข้อมูลเก่าที่ยังไม่มีเวรตั้งต้น เริ่มนับจากตอนนี้', () => {
+    const s = withBaselines(seedState());
+    expect(s.months['2026-11'].baseline?.['2026-11-03']).toEqual({ PM: 'alex', N: 'ae' });
+    expect(swapsOf(s, ['2026-11'])).toEqual([]);
   });
 });

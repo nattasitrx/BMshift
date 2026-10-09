@@ -11,6 +11,7 @@ import {
   type FestivalBlock,
 } from '../engine/festival';
 import { SLOT_LABEL, SLOTS, type AppState, type FestivalKind, type FestivalRecord, type Person, type ShiftRequest, type Template } from '../engine/types';
+import { syncBaselines } from '../engine/swaps';
 import { listRequests } from './api';
 import type { Ctx } from './App';
 import { Chip, Modal } from './common';
@@ -46,7 +47,7 @@ export function FestivalView({ state, mode, commit }: Ctx) {
           ? [`${generated.map(thaiMonthLabel).join(', ')} จัดเวรไว้แล้ว — กด "จัดใหม่อัตโนมัติ" ในเดือนนั้นอีกครั้งเพื่อหักยอดเวรเทศกาล`]
           : []),
       ]);
-      await commit(r.state);
+      await commit(syncBaselines(state, r.state));
     } finally {
       setBusy('');
     }
@@ -54,7 +55,7 @@ export function FestivalView({ state, mode, commit }: Ctx) {
 
   const remove = async (f: FestivalRecord) => {
     if (!confirm(`ลบการจัด${NAME[f.kind]}? เวรในช่วงนี้จะว่าง`)) return;
-    await commit(removeFestival(state, f));
+    await commit(syncBaselines(state, removeFestival(state, f)));
   };
 
 
@@ -159,7 +160,7 @@ export function FestivalView({ state, mode, commit }: Ctx) {
                   className="pick"
                   onClick={async () => {
                     setPick(null);
-                    await commit(setFestivalPerson(state, pick.f, pick.letter, p.id));
+                    await commit(syncBaselines(state, setFestivalPerson(state, pick.f, pick.letter, p.id)));
                   }}
                 >
                   <Chip person={p} />

@@ -140,6 +140,8 @@ export interface MonthRecord {
   /** ใครไม่ต้องอยู่ ส-อา / อยู่ 2 รอบ ในเดือนนี้ (สำหรับหน้าสรุป) */
   noWeekend?: string[];
   twoWeekend?: string[];
+  /** เวรตามที่ระบบจัด (ก่อนแลก/แก้มือ) ใช้หาว่าใครฝากเวรใคร */
+  baseline?: Record<string, DayAssign>;
   /** ใครได้ +1 เวรรวม / +1 ดึก ในเดือนนี้ (คิวเวรรวมเกิน/ดึกเกิน) */
   totalPlus?: string[];
   nightPlus?: string[];

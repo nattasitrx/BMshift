@@ -1,5 +1,6 @@
 import { DEFAULT_PAY_RATES } from '../engine/pay';
 import { defaultFestivalGroup, NOV_NO_WEEKEND, seedState } from '../engine/seed';
+import { withBaselines } from '../engine/swaps';
 import type { AppState, ShiftRequest } from '../engine/types';
 
 // ถ้าเปิดบน Netlify ข้อมูลอยู่ที่เซิร์ฟเวอร์ (ทุกคนเห็นตรงกัน)
@@ -49,13 +50,13 @@ export function migrate(s: AppState): AppState {
     nov && !nov.noWeekend && nov.info?.some((i) => i.startsWith('นำเข้า'))
       ? { ...s.months, '2026-11': { ...nov, noWeekend: NOV_NO_WEEKEND } }
       : s.months;
-  return {
+  return withBaselines({
     ...s,
     months,
     festivals: s.festivals ?? [],
     festivalGroup: s.festivalGroup ?? defaultFestivalGroup(s.people.map((p) => p.id), s.queues?.festival),
     settings: { ...s.settings, payRates: s.settings.payRates ?? DEFAULT_PAY_RATES },
-  };
+  });
 }
 
 export async function saveState(mode: Mode, state: AppState, etag: string | null): Promise<string | null> {
