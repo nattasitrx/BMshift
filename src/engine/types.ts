@@ -12,7 +12,10 @@ export const SLOT_LABEL: Record<Slot | 'SMC', string> = {
 
 export interface Person {
   id: string;
+  /** ชื่อเล่น ใช้ในหน้าจัดเวร */
   name: string;
+  /** ชื่อจริง ใช้ตอนพิมพ์ (ว่าง = ใช้ชื่อเล่น) */
+  fullName?: string;
   color: string;
   /** อยู่บ่ายต่อดึกในวันเดียวกันได้ ระบบจะพยายามจัดให้คู่กัน */
   canDouble: boolean;

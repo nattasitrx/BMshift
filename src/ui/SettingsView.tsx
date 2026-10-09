@@ -99,6 +99,14 @@ function PeopleSection({ d, update }: SectionProps) {
               value={p.name}
               style={{ background: p.color, color: textOn(p.color) }}
               onChange={(e) => update((x) => (x.people[i].name = e.target.value))}
+              aria-label="ชื่อเล่น"
+            />
+            <input
+              className="fullname-input"
+              value={p.fullName ?? ''}
+              placeholder="ชื่อจริง (ใช้ตอนพิมพ์)"
+              onChange={(e) => update((x) => (x.people[i].fullName = e.target.value))}
+              aria-label="ชื่อจริง"
             />
             <label className="check small">
               <input
@@ -147,7 +155,7 @@ function PeopleSection({ d, update }: SectionProps) {
           + เพิ่ม
         </button>
       </form>
-      <p className="muted small">คนใหม่จะถูกต่อท้ายทุกคิว</p>
+      <p className="muted small">ช่องแรก = ชื่อเล่น (ใช้ตอนจัดเวร) · ช่องที่สอง = ชื่อจริง (ใช้ตอนพิมพ์) · คนใหม่จะถูกต่อท้ายทุกคิว</p>
     </section>
   );
 }

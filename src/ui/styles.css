@@ -366,9 +366,6 @@ table {
   color: var(--warn);
 }
 
-.print-title {
-  display: none;
-}
 
 /* ---------- modal ---------- */
 .modal-backdrop {
@@ -687,38 +684,6 @@ table {
   padding: 4px;
 }
 
-@media print {
-  .no-print,
-  .card,
-  .tabbar,
-  .topbar {
-    display: none !important;
-  }
-  .app {
-    padding: 0;
-  }
-  .content {
-    padding: 0;
-    max-width: none;
-  }
-  .print-title {
-    display: block;
-    text-align: center;
-    font-size: 18px;
-    margin: 0 0 6px;
-  }
-  .table-wrap {
-    overflow: visible;
-  }
-  .sched {
-    font-size: 11px;
-  }
-  .sched .cell,
-  .sched tr {
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-  }
-}
 
 /* ---------- festival ---------- */
 .letters {
@@ -863,4 +828,122 @@ table {
 .alert .small {
   color: var(--ink);
   margin-top: 2px;
+}
+
+.fullname-input {
+  flex: 1 1 12em;
+  min-width: 10em;
+}
+
+/* ---------- print (ฉบับจริง) ---------- */
+.print-only {
+  display: none;
+}
+
+@page {
+  size: A4 landscape;
+  margin: 7mm;
+}
+
+@media print {
+  .no-print,
+  .card,
+  .tabbar,
+  .topbar,
+  .banner,
+  .modal-backdrop {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+  }
+  .app {
+    padding: 0;
+    min-height: 0;
+  }
+  .content {
+    padding: 0;
+    max-width: none;
+  }
+  .print-only {
+    display: block;
+  }
+}
+
+.print-sheet {
+  color: #000;
+  font-size: 9pt;
+}
+
+.print-sheet h1 {
+  font-size: 13pt;
+  text-align: center;
+  margin: 0 0 3px;
+}
+
+.print-sheet table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.print-sheet th,
+.print-sheet td {
+  border: 0.6pt solid #000;
+  padding: 0 3px;
+  text-align: center;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.print-sheet th {
+  font-weight: 700;
+  background: #e8e8e8;
+}
+
+.print-sheet .c-date {
+  width: 24mm;
+}
+
+.print-sheet .c-blank {
+  width: 12mm;
+}
+
+.print-sheet td.date {
+  text-align: left;
+  white-space: nowrap;
+}
+
+.print-sheet .hol {
+  font-size: 6.5pt;
+  line-height: 1.1;
+}
+
+.print-sheet tr.off td {
+  background: #f1f1f1;
+}
+
+.print-sheet td.na,
+.print-sheet tr.off td.na {
+  background: #d9d9d9;
+}
+
+.print-sheet th,
+.print-sheet td {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.print-sheet thead {
+  display: table-header-group;
+}
+
+.print-sheet tr {
+  break-inside: avoid;
+}
+
+/* ใช้พื้นที่ที่เหลือให้แถวสูงขึ้น เขียนชื่อเจ้าพนักงานด้วยมือได้สะดวก (31 วันยังพอดีหน้าเดียว) */
+.print-sheet tbody td {
+  height: 5.5mm;
 }

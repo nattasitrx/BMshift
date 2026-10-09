@@ -9,6 +9,7 @@ import { SLOT_LABEL, type AppState, type Slot } from '../engine/types';
 import type { Ctx } from './App';
 import { Chip, clone, Modal } from './common';
 import { ACTION_LABEL, formatWhen, GenerateDialog, type MonthAction } from './GenerateDialog';
+import { PrintSheet } from './PrintSheet';
 
 type Col = Slot | 'SMC';
 const COLS: Col[] = ['O', 'I', 'S', 'PM', 'N', 'SMC'];
@@ -111,8 +112,8 @@ export function ScheduleView({ state, commit, requests, month }: Ctx) {
         )
       )}
 
-      <h2 className="print-title">ตารางเวร {thaiMonthLabel(month)}</h2>
-      <div className="table-wrap">
+      <PrintSheet state={state} month={month} />
+      <div className="table-wrap no-print">
         <table className="sched">
           <thead>
             <tr>
