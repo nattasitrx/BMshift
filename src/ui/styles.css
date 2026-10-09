@@ -1118,37 +1118,45 @@ table {
   font-size: 10pt;
 }
 
-.slip-rows {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  flex: 1;
+.slip-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  margin-bottom: auto;
 }
 
-.slip-rows.two-col {
-  column-count: 2;
-  column-gap: 3mm;
-}
-
-.slip-rows li {
-  display: flex;
-  gap: 2mm;
-  border-bottom: 0.3pt dotted #888;
-  break-inside: avoid;
-}
-
-.slip-rows .d {
+.slip-table th,
+.slip-table td {
+  border: 0.5pt solid #000;
+  padding: 0 1.5mm;
+  text-align: center;
   white-space: nowrap;
-  min-width: 15mm;
+  overflow: hidden;
+  line-height: 1.3;
 }
 
-.slip-rows .s {
-  flex: 1;
+.slip-table th {
+  background: #eee;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
 }
 
-.slip-rows .n {
-  min-width: 3mm;
-  text-align: right;
+.slip-table th:first-child,
+.slip-table td.d {
+  text-align: left;
+  width: 34%;
+}
+
+.slip-table tfoot td {
+  font-weight: 700;
+}
+
+.slip.dense .slip-table {
+  font-size: 7pt;
+}
+
+.slip.dense .slip-table td {
+  line-height: 1.1;
 }
 
 .slip-empty {
@@ -1157,7 +1165,7 @@ table {
 }
 
 .slip-total {
-  border-top: 0.6pt solid #000;
+  margin-top: 1.5mm;
   padding-top: 1mm;
   font-size: 10pt;
   text-align: right;
@@ -1184,8 +1192,9 @@ table {
   font-size: 15px;
 }
 
-.slip-screen .slip-rows .d {
-  min-width: 7em;
+.slip-screen .slip-table th,
+.slip-screen .slip-table td {
+  padding: 2px 6px;
 }
 
 .slip-page {

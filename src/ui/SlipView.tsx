@@ -1,19 +1,28 @@
 import { useState } from 'react';
 import { daysInMonth, thaiDateLabel, thaiMonthLabel } from '../engine/dates';
 import { printName } from '../engine/names';
-import { baht, PAY_LABEL, slipFor, type Slip } from '../engine/pay';
+import { baht, paidSlots, slipFor, type Slip } from '../engine/pay';
 import type { AppState } from '../engine/types';
 import type { Ctx } from './App';
 import { Chip, getMe } from './common';
 
 // ใบเวรน้อย: ดูบนจอทีละคน / พิมพ์หลายคน (8 ใบต่อ A4 มีเส้นประไว้ตัด)
 
+const MORNING_LABEL = { O: 'OPD', I: 'IPD', S: 'เสริม' } as const;
+
 function SlipCard({ state, slip }: { state: AppState; slip: Slip }) {
   const p = state.people.find((x) => x.id === slip.personId);
   if (!p) return null;
   const real = printName(p);
+  const paid = new Set(paidSlots(state));
+  const withSmc = paid.has('SMC');
+  // แสดงเฉพาะวันที่มีเวรที่นับค่าเวร
+  const rows = slip.rows.filter((r) => r.count > 0);
+  const morning = (slots: Slip['rows'][number]['slots']) =>
+    slots.filter((x): x is 'O' | 'I' | 'S' => (x === 'O' || x === 'I' || x === 'S') && paid.has(x));
+  const total = (pred: (r: Slip['rows'][number]) => number) => rows.reduce((n, r) => n + pred(r), 0);
   return (
-    <div className="slip">
+    <div className={'slip' + (rows.length > 10 ? ' dense' : '')}>
       <div className="slip-head">
         <b>ใบเวรน้อย</b>
         <span>เดือน{thaiMonthLabel(slip.month)}</span>
@@ -22,18 +31,43 @@ function SlipCard({ state, slip }: { state: AppState; slip: Slip }) {
         ชื่อ <b>{real}</b>
         {real !== p.name && <span> ({p.name})</span>}
       </div>
-      {slip.rows.length === 0 ? (
+      {rows.length === 0 ? (
         <div className="slip-empty">ไม่มีเวรเดือนนี้</div>
       ) : (
-        <ol className={'slip-rows' + (slip.rows.length > 8 ? ' two-col' : '')}>
-          {slip.rows.map((r) => (
-            <li key={r.date}>
-              <span className="d">{thaiDateLabel(r.date)}</span>
-              <span className="s">{r.slots.map((s) => PAY_LABEL[s]).join(', ')}</span>
-              <span className="n">{r.count}</span>
-            </li>
-          ))}
-        </ol>
+        <table className="slip-table">
+          <thead>
+            <tr>
+              <th>วันที่</th>
+              <th>เช้า</th>
+              <th>บ่าย</th>
+              <th>ดึก</th>
+              {withSmc && <th>SMC</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => {
+              const m = morning(r.slots);
+              return (
+                <tr key={r.date}>
+                  <td className="d">{thaiDateLabel(r.date)}</td>
+                  <td>{m.length ? `✓ (${m.map((x) => MORNING_LABEL[x]).join('/')})` : ''}</td>
+                  <td>{r.slots.includes('PM') ? '✓' : ''}</td>
+                  <td>{r.slots.includes('N') ? '✓' : ''}</td>
+                  {withSmc && <td>{r.slots.includes('SMC') ? '✓' : ''}</td>}
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td className="d">รวม</td>
+              <td>{total((r) => morning(r.slots).length)}</td>
+              <td>{total((r) => (r.slots.includes('PM') ? 1 : 0))}</td>
+              <td>{total((r) => (r.slots.includes('N') ? 1 : 0))}</td>
+              {withSmc && <td>{total((r) => (r.slots.includes('SMC') ? 1 : 0))}</td>}
+            </tr>
+          </tfoot>
+        </table>
       )}
       <div className="slip-total">
         รวม <b>{slip.count}</b> เวร × {baht(slip.rate)} = <b>{baht(slip.total)}</b> บาท
