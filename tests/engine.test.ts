@@ -8,6 +8,7 @@ import { changedMonths, describeChange, holidayChange } from '../src/engine/holi
 import { firstNameOnly, printName } from '../src/engine/names';
 import { rateFor, slipFor } from '../src/engine/pay';
 import { personHistory, queueLastUse, weekendRoleLabel, weekendRoleLoad } from '../src/engine/usage';
+import { applyDeal, shiftsOf, type MarketOffer, type MarketPost } from '../src/engine/market';
 import { seedState, SEED_HOLIDAYS, SEED_TEMPLATES } from '../src/engine/seed';
 import { findIssues, summarizeMonth } from '../src/engine/summary';
 import { SLOTS, type AppState, type GenerateMode, type ShiftRequest } from '../src/engine/types';
@@ -525,5 +526,52 @@ describe('ข้อมูล พ.ย. 69', () => {
     expect(m.months['2026-11'].noWeekend).toEqual(['mod', 'saeng']);
     expect(queueLastUse(m).noWeekend?.get('mod')?.month).toBe('2026-11');
     expect(personHistory(m, 'saeng', ['2026-11']).map((e) => e.text)).toEqual(['ไม่อยู่ ส-อา พฤศจิกายน 2569']);
+  });
+});
+
+describe('ตลาดเวร', () => {
+  const base = () => seedState(); // ใช้ตาราง พ.ย. 69
+  const post = (p: Partial<MarketPost>): MarketPost => ({
+    id: 'p1', month: '2026-11', kind: 'sell', by: 'alex', date: '2026-11-03', slot: 'PM', status: 'open', createdAt: '', ...p,
+  });
+  const offer = (o: Partial<MarketOffer>): MarketOffer => ({
+    id: 'o1', postId: 'p1', month: '2026-11', by: 'prae', kind: 'take', createdAt: '', ...o,
+  });
+
+  it('ขาย + ขอรับ: เวรย้ายไปคนรับ', () => {
+    const r = applyDeal(base(), post({}), offer({}));
+    expect(r.error).toBeUndefined();
+    expect(r.state!.days['2026-11-03'].PM).toBe('prae');
+    expect(r.summary).toContain('ขายบ่าย อ 3 พ.ย. 69 ให้ แพร');
+  });
+
+  it('หาแลก + แลก: สลับสองช่อง', () => {
+    // อาเล็ก บ่าย 3 พ.ย. ↔ แพร บ่าย 10 พ.ย.
+    const r = applyDeal(base(), post({ kind: 'swap' }), offer({ kind: 'swap', date: '2026-11-10', slot: 'PM' }));
+    expect(r.state!.days['2026-11-03'].PM).toBe('prae');
+    expect(r.state!.days['2026-11-10'].PM).toBe('alex');
+  });
+
+  it('รับซื้อ + ขายให้: เวรของคนเสนอย้ายมาคนประกาศ', () => {
+    const r = applyDeal(base(), post({ kind: 'buy', by: 'prae', slot: undefined }), offer({ kind: 'give', by: 'alex', date: '2026-11-03', slot: 'PM' }));
+    expect(r.state!.days['2026-11-03'].PM).toBe('prae');
+  });
+
+  it('ตารางเปลี่ยนไปแล้ว = ตกลงไม่ได้', () => {
+    const s = base();
+    s.days['2026-11-03'] = { ...s.days['2026-11-03'], PM: 'mod' };
+    expect(applyDeal(s, post({}), offer({})).error).toContain('ไม่ใช่ของ');
+  });
+
+  it('เตือนถ้าดีลทำให้ผิดกฎ (ดึกติดกัน)', () => {
+    // เอ้ดึก 3 พ.ย. → ให้อีฟ ซึ่งดึก 4 พ.ย. อยู่แล้ว = ดึกติดกัน
+    const r = applyDeal(base(), post({ by: 'ae', slot: 'N' }), offer({ by: 'eve' }));
+    expect(r.issues.map((i) => i.message).join()).toContain('ดึกติดกัน');
+  });
+
+  it('เวรของฉันสำหรับเลือกขาย', () => {
+    expect(shiftsOf(base(), 'pu', '2026-11').map((x) => `${x.date.slice(8)}${x.slot}`)).toEqual([
+      '01O', '01PM', '07S', '07N', '20N', '22O', '22PM', '26N',
+    ]);
   });
 });

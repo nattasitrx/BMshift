@@ -1,5 +1,6 @@
 import { DEFAULT_PAY_RATES } from '../engine/pay';
 import { defaultFestivalGroup, NOV_NO_WEEKEND, seedState } from '../engine/seed';
+import type { MarketOffer, MarketPost } from '../engine/market';
 import type { AppState, ShiftRequest } from '../engine/types';
 
 // ถ้าเปิดบน Netlify ข้อมูลอยู่ที่เซิร์ฟเวอร์ (ทุกคนเห็นตรงกัน)
@@ -106,4 +107,47 @@ export async function deleteRequest(mode: Mode, r: ShiftRequest): Promise<void> 
 
 export function newId(): string {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+}
+
+// ---------- ตลาดเวร ----------
+const LS_MKT = 'bmshift:market';
+type MarketStore = { posts: MarketPost[]; offers: MarketOffer[] };
+
+export async function listMarket(mode: Mode, month: string): Promise<MarketStore> {
+  if (mode === 'local') {
+    const all = lsGet<MarketStore>(LS_MKT, { posts: [], offers: [] });
+    return { posts: all.posts.filter((p) => p.month === month), offers: all.offers.filter((o) => o.month === month) };
+  }
+  const res = await fetch(`/api/market?month=${month}`);
+  if (!res.ok) throw new Error(`โหลดตลาดเวรไม่สำเร็จ (${res.status})`);
+  return (await res.json()) as MarketStore;
+}
+
+export async function saveMarket(mode: Mode, type: 'post' | 'offer', item: MarketPost | MarketOffer): Promise<void> {
+  if (mode === 'local') {
+    const all = lsGet<MarketStore>(LS_MKT, { posts: [], offers: [] });
+    const key = type === 'post' ? 'posts' : 'offers';
+    const list = (all[key] as (MarketPost | MarketOffer)[]).filter((x) => x.id !== item.id);
+    lsSet(LS_MKT, { ...all, [key]: [...list, item] });
+    return;
+  }
+  const res = await fetch('/api/market', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ type, item }),
+  });
+  if (!res.ok) throw new Error(`บันทึกไม่สำเร็จ (${res.status})`);
+}
+
+export async function deleteMarket(mode: Mode, type: 'post' | 'offer', month: string, id: string): Promise<void> {
+  if (mode === 'local') {
+    const all = lsGet<MarketStore>(LS_MKT, { posts: [], offers: [] });
+    lsSet(LS_MKT, {
+      posts: type === 'post' ? all.posts.filter((x) => x.id !== id) : all.posts,
+      offers: type === 'offer' ? all.offers.filter((x) => x.id !== id) : all.offers,
+    });
+    return;
+  }
+  const res = await fetch(`/api/market?month=${month}&type=${type}&id=${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`ลบไม่สำเร็จ (${res.status})`);
 }

@@ -3,16 +3,18 @@ import { shiftMonth, thaiMonthLabel, toISO } from '../engine/dates';
 import type { AppState, ShiftRequest } from '../engine/types';
 import { ConflictError, listRequests, loadState, saveState, type Mode } from './api';
 import { FestivalView } from './FestivalView';
+import { MarketView } from './MarketView';
 import { QueuesView } from './QueuesView';
 import { RequestsView } from './RequestsView';
 import { ScheduleView } from './ScheduleView';
 import { SettingsView } from './SettingsView';
 import { SummaryView } from './SummaryView';
 
-type Tab = 'schedule' | 'requests' | 'summary' | 'festival' | 'queues' | 'settings';
+type Tab = 'schedule' | 'requests' | 'market' | 'summary' | 'festival' | 'queues' | 'settings';
 const TABS: { key: Tab; label: string; icon: string }[] = [
   { key: 'schedule', label: 'ตารางเวร', icon: '📅' },
   { key: 'requests', label: 'แจ้งวัน', icon: '✋' },
+  { key: 'market', label: 'ตลาด', icon: '🛒' },
   { key: 'summary', label: 'สรุป', icon: '📊' },
   { key: 'festival', label: 'เทศกาล', icon: '🎉' },
   { key: 'queues', label: 'คิว', icon: '🔁' },
@@ -117,6 +119,7 @@ export function App() {
       <main className="content">
         {tab === 'schedule' && <ScheduleView {...ctx} />}
         {tab === 'requests' && <RequestsView {...ctx} />}
+        {tab === 'market' && <MarketView {...ctx} />}
         {tab === 'summary' && <SummaryView {...ctx} />}
         {tab === 'festival' && <FestivalView {...ctx} />}
         {tab === 'queues' && <QueuesView {...ctx} />}
