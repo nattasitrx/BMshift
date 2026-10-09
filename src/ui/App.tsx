@@ -7,11 +7,13 @@ import { QueuesView } from './QueuesView';
 import { RequestsView } from './RequestsView';
 import { ScheduleView } from './ScheduleView';
 import { SettingsView } from './SettingsView';
+import { SummaryView } from './SummaryView';
 
-type Tab = 'schedule' | 'requests' | 'festival' | 'queues' | 'settings';
+type Tab = 'schedule' | 'requests' | 'summary' | 'festival' | 'queues' | 'settings';
 const TABS: { key: Tab; label: string; icon: string }[] = [
   { key: 'schedule', label: 'ตารางเวร', icon: '📅' },
   { key: 'requests', label: 'แจ้งวัน', icon: '✋' },
+  { key: 'summary', label: 'สรุป', icon: '📊' },
   { key: 'festival', label: 'เทศกาล', icon: '🎉' },
   { key: 'queues', label: 'คิว', icon: '🔁' },
   { key: 'settings', label: 'ตั้งค่า', icon: '⚙️' },
@@ -115,6 +117,7 @@ export function App() {
       <main className="content">
         {tab === 'schedule' && <ScheduleView {...ctx} />}
         {tab === 'requests' && <RequestsView {...ctx} />}
+        {tab === 'summary' && <SummaryView {...ctx} />}
         {tab === 'festival' && <FestivalView {...ctx} />}
         {tab === 'queues' && <QueuesView {...ctx} />}
         {tab === 'settings' && <SettingsView {...ctx} />}

@@ -17,10 +17,10 @@ export const W = {
 };
 
 export interface CostCtx {
-  /** index ของวันที่ขอไม่ว่าง */
-  off: Set<number>;
-  /** index ของวันที่ขออยู่ */
-  want: Set<number>;
+  /** index ของวัน -> เวรที่แจ้งไม่ว่าง (bitmask) */
+  off: Map<number, number>;
+  /** index ของวัน -> เวรที่ขออยู่ (bitmask) */
+  want: Map<number, number>;
   canDouble: boolean;
   /** index ของวันธรรมดาที่ไม่ใช่ช่วงหยุด/คืนก่อนหยุด */
   plainDay: Set<number>;
@@ -37,11 +37,10 @@ export function maskCost(m: number[], c: CostCtx): number {
   const n = m.length;
   for (let i = 0; i < n; i++) {
     const x = m[i];
-    if (!x) {
-      if (c.want.has(i)) cost += W.wantMissed;
-      continue;
-    }
-    if (c.off.has(i)) cost += HARD;
+    const wb = c.want.get(i);
+    if (wb && !(x & wb)) cost += W.wantMissed;
+    if (!x) continue;
+    if (x & (c.off.get(i) ?? 0)) cost += HARD;
     if (popcount(x & MORNING) > 1) cost += HARD;
     const pm = (x & BIT.PM) !== 0;
     const nt = (x & BIT.N) !== 0;

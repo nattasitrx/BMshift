@@ -24,13 +24,15 @@ export default async (req: Request) => {
       typeof r.id === 'string' && ID.test(r.id) &&
       typeof r.date === 'string' && DATE.test(r.date) &&
       typeof r.personId === 'string' && ID.test(r.personId) &&
-      (r.type === 'off' || r.type === 'want');
+      (r.type === 'off' || r.type === 'want') &&
+      (r.slot === undefined || r.slot === 'day' || r.slot === 'M' || r.slot === 'PM' || r.slot === 'N');
     if (!ok) return Response.json({ error: 'invalid request' }, { status: 400 });
     const item = {
       id: r.id,
       date: r.date,
       personId: r.personId,
       type: r.type,
+      slot: r.slot ?? 'day',
       note: typeof r.note === 'string' ? r.note.slice(0, 200) : undefined,
       by: typeof r.by === 'string' ? r.by.slice(0, 60) : undefined,
       createdAt: new Date().toISOString(),

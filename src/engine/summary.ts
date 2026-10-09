@@ -1,6 +1,8 @@
 import { holidayMap, isOffDay } from './blocks';
+import { BIT } from './cost';
 import { addDays, daysInMonth } from './dates';
-import type { AppState, DayAssign, Holiday, Person, ShiftRequest, Slot } from './types';
+import { indexRequests } from './requests';
+import { SLOT_LABEL, type AppState, type DayAssign, type Holiday, type Person, type ShiftRequest, type Slot } from './types';
 
 export interface Issue {
   date: string;
@@ -23,7 +25,7 @@ export function findIssues(
   const issues: Issue[] = [];
   const hol = holidayMap(holidays);
   const name = (id: string) => people.find((p) => p.id === id)?.name ?? id;
-  const off = new Set(requests.filter((r) => r.type === 'off').map((r) => `${r.personId}|${r.date}`));
+  const req = indexRequests(requests);
   for (const d of daysInMonth(month)) {
     const next = addDays(d, 1);
     for (const p of people) {
@@ -32,7 +34,8 @@ export function findIssues(
       const n = slotsOf(days[next], p.id);
       const add = (level: Issue['level'], message: string) =>
         issues.push({ date: d, personId: p.id, level, message: `${name(p.id)}: ${message}` });
-      if (off.has(`${p.id}|${d}`)) add('error', 'แจ้งไม่ว่างวันนี้');
+      const clash = s.filter((x) => req.off(p.id, d) & BIT[x]);
+      if (clash.length) add('error', `แจ้งไม่ว่าง (${clash.map((x) => SLOT_LABEL[x]).join('/')})`);
       const mornings = s.filter((x) => x === 'O' || x === 'I' || x === 'S');
       if (mornings.length > 1) add('error', 'มีเวรเช้าซ้อนกัน');
       if (s.includes('PM') && s.includes('N') && !p.canDouble) add('error', 'บ่ายต่อดึก (ไม่ได้ตั้งค่าให้อยู่ได้)');

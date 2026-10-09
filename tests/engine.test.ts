@@ -371,3 +371,40 @@ describe('ชื่อตอนพิมพ์', () => {
     expect(printName({ name: 'มด' })).toBe('มด');
   });
 });
+
+describe('แจ้งวันแยกตามเวร', () => {
+  const run = (reqs: ShiftRequest[], seed = 1) => {
+    const s = arrangeAll(seedState());
+    const r = generateMonth(s, reqs, '2026-12', { seed, iterations: 30_000 });
+    return { ...s, days: r.days };
+  };
+  const req = (date: string, personId: string, type: 'off' | 'want', slot?: ShiftRequest['slot']): ShiftRequest => ({
+    id: `${date}${personId}${type}${slot}`, date, personId, type, slot, createdAt: '',
+  });
+
+  it('ไม่ว่างดึก: ไม่ได้ดึก แต่ยังได้บ่ายได้', () => {
+    const days = daysInMonth('2026-12').slice(0, 20);
+    const s = run(days.map((d) => req(d, 'eve', 'off', 'N')));
+    for (const d of days) expect(s.days[d]?.N, d).not.toBe('eve');
+    expect(days.some((d) => s.days[d]?.PM === 'eve' || s.days[d]?.O === 'eve' || s.days[d]?.I === 'eve')).toBe(true);
+  });
+
+  it('ไม่ว่างบ่าย ห้าม SMC ด้วย (คนหัวคิว SMC ถูกข้าม)', () => {
+    const first = run([]).days['2026-12-02'].SMC!;
+    const s = run([req('2026-12-02', first, 'off', 'PM')]);
+    expect(s.days['2026-12-02'].SMC).toBeTruthy();
+    expect(s.days['2026-12-02'].SMC).not.toBe(first);
+  });
+
+  it('ขออยู่ดึก ได้ดึกวันนั้น และขออยู่บ่ายได้บ่าย', () => {
+    const s = run([req('2026-12-16', 'saeng', 'want', 'N'), req('2026-12-22', 'ae', 'want', 'PM')]);
+    expect(s.days['2026-12-16'].N).toBe('saeng');
+    expect(s.days['2026-12-22'].PM).toBe('ae');
+  });
+
+  it('ตรวจพบเมื่อแก้มือไปชนเวรที่แจ้งไม่ว่าง', () => {
+    const days = { '2026-12-15': { PM: 'mod', N: 'pu' } };
+    const issues = findIssues(days, seedState().people, [req('2026-12-15', 'mod', 'off', 'N'), req('2026-12-15', 'pu', 'off', 'N')], '2026-12');
+    expect(issues.map((i) => i.personId)).toEqual(['pu']);
+  });
+});

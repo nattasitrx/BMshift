@@ -81,11 +81,16 @@ export interface Holiday {
 
 export type DayAssign = Partial<Record<Slot | 'SMC', string>> & { note?: string };
 
+/** คำขอระบุเวร: ทั้งวัน / เช้า / บ่าย / ดึก */
+export type RequestSlot = 'day' | 'M' | 'PM' | 'N';
+
 export interface ShiftRequest {
   id: string;
   date: string;
   personId: string;
   type: 'off' | 'want';
+  /** ไม่ระบุ = ทั้งวัน */
+  slot?: RequestSlot;
   note?: string;
   by?: string;
   createdAt: string;
@@ -132,6 +137,9 @@ export interface MonthRecord {
   blocks: BlockRecord[];
   smcDays: string[];
   weekendRoles: Record<string, WeekendRole[]>;
+  /** ใครไม่ต้องอยู่ ส-อา / อยู่ 2 รอบ ในเดือนนี้ (สำหรับหน้าสรุป) */
+  noWeekend?: string[];
+  twoWeekend?: string[];
   /** สรุปว่าระบบตัดสินใจอะไรจากคิว เช่น ใครไม่อยู่ ส-อา */
   info: string[];
   warnings: string[];

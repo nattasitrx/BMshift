@@ -3,6 +3,8 @@ import { holidayMap, isOffDay } from '../engine/blocks';
 import { daysInMonth, shiftMonth, thaiDateLabel, thaiDayShort, thaiMonthLabel } from '../engine/dates';
 import { clearMonth, generateBest } from '../engine/generate';
 import { undoMonth, withHistory } from '../engine/history';
+import { BIT } from '../engine/cost';
+import { indexRequests, REQUEST_SLOT_LABEL } from '../engine/requests';
 import { describeChange, holidayChange } from '../engine/holidayCheck';
 import { findIssues, summarizeMonth } from '../engine/summary';
 import { SLOT_LABEL, type AppState, type Slot } from '../engine/types';
@@ -30,9 +32,11 @@ export function ScheduleView({ state, commit, requests, month }: Ctx) {
   const reqByDate = new Map<string, { off: string[]; want: string[] }>();
   for (const r of requests) {
     const e = reqByDate.get(r.date) ?? { off: [], want: [] };
-    e[r.type].push(people.get(r.personId)?.name ?? r.personId);
+    const who = people.get(r.personId)?.name ?? r.personId;
+    e[r.type].push(r.slot && r.slot !== 'day' ? `${who}(${REQUEST_SLOT_LABEL[r.slot]})` : who);
     reqByDate.set(r.date, e);
   }
+  const reqIdx = indexRequests(requests);
 
   const run = async (action: MonthAction, byId: string) => {
     const by = people.get(byId)?.name ?? byId;
@@ -260,7 +264,7 @@ export function ScheduleView({ state, commit, requests, month }: Ctx) {
             {state.people
               .filter((p) => p.active)
               .map((p) => {
-                const isOff = requests.some((r) => r.personId === p.id && r.date === edit.date && r.type === 'off');
+                const isOff = (reqIdx.off(p.id, edit.date) & BIT[edit.col]) !== 0;
                 const busyToday = COLS.filter((c) => c !== edit.col && state.days[edit.date]?.[c] === p.id);
                 return (
                   <button key={p.id} className="pick" onClick={() => setCell(edit.date, edit.col, p.id)}>

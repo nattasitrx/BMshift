@@ -1,6 +1,7 @@
 import { detectBlocks, holidayMap, isOffDay, templateCells, templateLetters, type DetectedBlock } from './blocks';
 import { BIT, maskCost, type CostCtx } from './cost';
 import { addDays, dateRange, shiftMonth } from './dates';
+import { indexRequests } from './requests';
 import { mulberry32, shuffle } from './rng';
 import { SLOTS, type AppState, type DayAssign, type FestivalRecord, type ShiftRequest, type Template } from './types';
 
@@ -93,17 +94,11 @@ export function arrangeFestival(
   }
 
   const span = [block.eve, ...block.days];
-  const off = new Map<string, Set<string>>();
-  const want = new Map<string, Set<string>>();
-  for (const r of requests) {
-    const m = r.type === 'off' ? off : want;
-    if (!m.has(r.personId)) m.set(r.personId, new Set());
-    m.get(r.personId)!.add(r.date);
-  }
+  const req = indexRequests(requests);
   const picked = group;
   const warnings = picked
-    .filter((id) => span.some((d) => off.get(id)?.has(d)))
-    .map((id) => `${nameOf(state, id)} แจ้งไม่ว่างในช่วง${name} — ตรวจสอบหรือแลกเวร`);
+    .filter((id) => span.some((d) => req.anyOff(id, d)))
+    .map((id) => `${nameOf(state, id)} แจ้งไม่ว่างในช่วง${name} — ระบบเลี่ยงให้ถ้าทำได้ ตรวจอีกครั้ง`);
 
   const days: Record<string, DayAssign> = JSON.parse(JSON.stringify(state.days));
   if (existing) clearFestivalCells(state, days, existing);
@@ -127,9 +122,14 @@ export function arrangeFestival(
       return x;
     });
     base.set(id, m);
-    const toIdx = (s?: Set<string>) => new Set([...(s ?? [])].map((d) => idx.get(d)).filter((x): x is number => x !== undefined));
+    const off = new Map<number, number>();
+    const want = new Map<number, number>();
+    dates.forEach((d, i) => {
+      if (req.off(id, d)) off.set(i, req.off(id, d));
+      if (req.want(id, d)) want.set(i, req.want(id, d));
+    });
     const p = state.people.find((x) => x.id === id)!;
-    ctx.set(id, { off: toIdx(off.get(id)), want: toIdx(want.get(id)), canDouble: p.canDouble, plainDay, offDay });
+    ctx.set(id, { off, want, canDouble: p.canDouble, plainDay, offDay });
   }
   const cells = templateCells(block, template);
   let best: Record<string, string> = {};

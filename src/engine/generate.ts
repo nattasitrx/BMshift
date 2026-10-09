@@ -3,6 +3,7 @@ import { BIT, COUNTED, maskCost, popcount, type CostCtx } from './cost';
 import { addDays, dateRange, daysInMonth, monthOf, nthWeekdayOfMonth, thaiDateLabel, weekday } from './dates';
 import { mulberry32, randInt, shuffle, type Rng } from './rng';
 import { holidaySignature } from './holidayCheck';
+import { indexRequests } from './requests';
 import { findIssues } from './summary';
 import {
   SLOTS,
@@ -204,14 +205,9 @@ export function generateMonth(
     }
   }
 
-  const offBy = new Map<string, Set<string>>();
-  const wantBy = new Map<string, Set<string>>();
-  for (const r of requests) {
-    const map = r.type === 'off' ? offBy : wantBy;
-    if (!map.has(r.personId)) map.set(r.personId, new Set());
-    map.get(r.personId)!.add(r.date);
-  }
-  const isOff = (id: string, d: string) => offBy.get(id)?.has(d) ?? false;
+  const req = indexRequests(requests);
+  /** แจ้งไม่ว่างเวรนี้ (bit) ในวันนั้น */
+  const isOff = (id: string, d: string, bits: number) => (req.off(id, d) & bits) !== 0;
 
   // ---- ช่วงวันที่ใช้คำนวณ (เผื่อก่อน/หลังเดือนเพื่อตรวจเวรต่อเนื่อง) ----
   const dates = dateRange(addDays(first, -3), addDays(last, 10));
@@ -225,9 +221,13 @@ export function generateMonth(
   });
   const ctx = new Map<string, CostCtx>();
   for (const p of active) {
-    const toIdx = (s?: Set<string>) =>
-      new Set([...(s ?? [])].map((d) => idx.get(d)).filter((x): x is number => x !== undefined));
-    ctx.set(p.id, { off: toIdx(offBy.get(p.id)), want: toIdx(wantBy.get(p.id)), canDouble: p.canDouble, plainDay, offDay });
+    const off = new Map<number, number>();
+    const want = new Map<number, number>();
+    dates.forEach((d, i) => {
+      if (req.off(p.id, d)) off.set(i, req.off(p.id, d));
+      if (req.want(p.id, d)) want.set(i, req.want(p.id, d));
+    });
+    ctx.set(p.id, { off, want, canDouble: p.canDouble, plainDay, offDay });
   }
 
   const buildMasks = () => {
@@ -294,10 +294,13 @@ export function generateMonth(
     const letters = templateLetters(template);
     const key: QueueKey = b.kind === 'adjacent' ? 'adjacent' : 'midweek';
     const span = [b.eve, ...b.days];
-    const free = (id: string) => isActive(id) && !span.some((d) => isOff(id, d));
+    // เข้มสุด: ไม่ได้แจ้งอะไรในช่วงนี้ → ผ่อน: ไม่ได้แจ้งไม่ว่างทั้งวัน (ส่วนแจ้งรายเวรให้ตอนจัดตำแหน่งเลี่ยงเอง)
+    const free = (id: string) => isActive(id) && !span.some((d) => req.anyOff(id, d));
+    const notFullOff = (id: string) => isActive(id) && !span.some((d) => req.fullDay(id, d));
     const picked = takeFromQueue(q[key], letters.length, [
       (id) => free(id) && !holidayUsed.has(id),
       free,
+      notFullOff,
       isActive,
     ]);
     const label = `${template.label} (${thaiDateLabel(b.start)} – ${thaiDateLabel(b.end)})`;
@@ -305,7 +308,7 @@ export function generateMonth(
       warn(`คนไม่พอสำหรับ ${label}`);
       continue;
     }
-    for (const id of picked) if (!free(id)) warn(`${nameOf(id)} ขอไม่ว่างในช่วง ${label} แต่จำเป็นต้องใช้`);
+    for (const id of picked) if (!notFullOff(id)) warn(`${nameOf(id)} ขอไม่ว่างในช่วง ${label} แต่จำเป็นต้องใช้`);
     const people = assignLetters(b, template, letters, picked);
     writeCells(templateCells(b, template), people);
     picked.forEach((id) => holidayUsed.add(id));
@@ -341,6 +344,8 @@ export function generateMonth(
 
   // ---- 3. เสาร์–อาทิตย์ปกติ ----
   const weekendRoles: Record<string, WeekendRole[]> = doWeekend ? {} : clone(old?.weekendRoles ?? {});
+  let noWeekend: string[] = doWeekend ? [] : (old?.noWeekend ?? []);
+  let twoWeekend: string[] = doWeekend ? [] : (old?.twoWeekend ?? []);
   const wkBlocks = blocks.filter((x) => x.kind === 'weekend');
   const wt = state.templates.find((t) => t.kind === 'weekend' && t.days === 2);
   if (wkBlocks.length && !wt && (doWeekend || mode === 'extra')) warn('ไม่มีแพทเทิร์นเสาร์–อาทิตย์ปกติ');
@@ -361,6 +366,7 @@ export function generateMonth(
     if (pool.length > slots) {
       const skip = takeFromQueue(q.noWeekend, pool.length - slots, [(id) => pool.includes(id)]);
       list = pool.filter((id) => !skip.includes(id));
+      noWeekend = skip;
       note(`ไม่อยู่ ส-อา เดือนนี้ (ตามคิว): ${skip.map(nameOf).join(', ')}`);
     } else if (pool.length < slots && pool.length > 0) {
       let need = slots - pool.length;
@@ -377,6 +383,7 @@ export function generateMonth(
         need -= take.length;
       }
       list.push(...doubles);
+      twoWeekend = doubles;
       note(`อยู่ ส-อา 2 รอบ (คิว 2 wk): ${doubles.map(nameOf).join(', ')}`);
     }
     if (list.length < slots) warn(`คนไม่พอสำหรับเสาร์–อาทิตย์ (ต้องการ ${slots} ได้ ${list.length})`);
@@ -426,7 +433,7 @@ export function generateMonth(
         const free = (id: string) => {
           if (!isActive(id) || inPattern.has(id)) return false;
           const m = masks.get(id)!;
-          if (b.days.some((d) => isOff(id, d) || m[idx.get(d)!])) return false;
+          if (b.days.some((d) => isOff(id, d, BIT.S) || m[idx.get(d)!])) return false;
           return !(m[idx.get(b.eve)!] & BIT.N);
         };
         const [extraId] = takeFromQueue(q.extra, 1, [free, (id) => isActive(id) && !inPattern.has(id)]);
@@ -686,11 +693,11 @@ export function generateMonth(
     for (const d of smcDays) {
       const i = idx.get(d)!;
       const strict = (id: string) => {
-        if (!isActive(id) || isOff(id, d)) return false;
+        if (!isActive(id) || isOff(id, d, BIT.SMC)) return false;
         const m = masks.get(id)!;
         return !m[i] && !(m[i - 1] & BIT.N);
       };
-      const relaxed = (id: string) => isActive(id) && !isOff(id, d) && !(masks.get(id)![i] & (BIT.PM | BIT.N));
+      const relaxed = (id: string) => isActive(id) && !isOff(id, d, BIT.SMC) && !(masks.get(id)![i] & (BIT.PM | BIT.N));
       const [id] = takeFromQueue(q.smc, 1, [strict, relaxed]);
       if (!id) {
         warn(`หาคนอยู่ SMC ${thaiDateLabel(d)} ไม่ได้`);
@@ -722,6 +729,8 @@ export function generateMonth(
       blocks: records.sort((a, b) => a.start.localeCompare(b.start)),
       smcDays,
       weekendRoles,
+      noWeekend,
+      twoWeekend,
       info: flat('info'),
       warnings: [...flat('warnings'), ...checks],
     },
