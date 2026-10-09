@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { pickTemplate, templateCells, templateLetters } from '../engine/blocks';
+import { templateCells, templateLetters } from '../engine/blocks';
 import { dateRange, monthOf, shiftMonth, thaiDateLabel, thaiMonthLabel, toISO } from '../engine/dates';
 import {
   arrangeFestival,
@@ -10,7 +10,7 @@ import {
   setFestivalPerson,
   type FestivalBlock,
 } from '../engine/festival';
-import { SLOT_LABEL, SLOTS, type FestivalRecord, type Person, type ShiftRequest, type Template } from '../engine/types';
+import { SLOT_LABEL, SLOTS, type AppState, type FestivalKind, type FestivalRecord, type Person, type ShiftRequest, type Template } from '../engine/types';
 import { listRequests } from './api';
 import type { Ctx } from './App';
 import { Chip, Modal } from './common';
@@ -29,7 +29,7 @@ export function FestivalView({ state, mode, commit }: Ctx) {
 
   const arrange = async (b: FestivalBlock) => {
     const f = findFestival(state, b);
-    if (f && !confirm(`จัด${NAME[b.kind]}ใหม่? คนที่เลือกไว้จะถูกสุ่มใหม่จากคิว`)) return;
+    if (f && !confirm(`จัด${NAME[b.kind]}ใหม่? ตำแหน่ง A, B, C… จะถูกจัดใหม่จากกลุ่มที่เลือกไว้`)) return;
     setBusy(b.start);
     try {
       const months = [...new Set([b.eve, ...b.days].map(monthOf))];
@@ -57,15 +57,13 @@ export function FestivalView({ state, mode, commit }: Ctx) {
     await commit(removeFestival(state, f));
   };
 
-  const covered = new Set(state.festivals.filter((f) => f.start >= `${from}-01`).flatMap((f) => Object.values(f.people)));
-  const notYet = active.filter((p) => !covered.has(p.id));
 
   return (
     <div>
       <p className="muted">
-        ปีใหม่และสงกรานต์จัดแยกไว้ก่อน แล้วตอนจัดเวรรายเดือน ระบบจะนับเวรเทศกาลเข้ายอดของแต่ละคนก่อน แล้วค่อยเฉลี่ยเวรที่เหลือ ·
-        คนเลือกจากคิว "ปีใหม่ / สงกรานต์" — ทุกคนได้อยู่ 1 เทศกาล
+        ปีใหม่และสงกรานต์จัดแยกไว้ก่อน แล้วตอนจัดเวรรายเดือน ระบบจะนับเวรเทศกาลเข้ายอดของแต่ละคนก่อน แล้วค่อยเฉลี่ยเวรที่เหลือ
       </p>
+      <GroupPicker state={state} commit={commit} />
       {msg.length > 0 && (
         <div className="card">
           <ul className="issues">
@@ -77,11 +75,7 @@ export function FestivalView({ state, mode, commit }: Ctx) {
           </ul>
         </div>
       )}
-      {notYet.length > 0 && state.festivals.length > 0 && (
-        <p className="small">
-          ยังไม่ได้อยู่เทศกาลในช่วงนี้: {notYet.map((p) => <Chip key={p.id} person={p} small />)}
-        </p>
-      )}
+
       {blocks.length === 0 && (
         <div className="card muted">
           ไม่พบวันหยุดปีใหม่/สงกรานต์ในช่วงนี้ — เพิ่มวันหยุดและติ๊กประเภท "ปีใหม่" หรือ "สงกรานต์" ในหน้าตั้งค่า
@@ -90,7 +84,13 @@ export function FestivalView({ state, mode, commit }: Ctx) {
       {blocks.map((b) => {
         const f = findFestival(state, b);
         const options = festivalTemplates(state, b);
-        const chosenId = tplChoice[b.start] ?? f?.templateId ?? pickTemplate(b, state, active.length).template?.id ?? '';
+        const groupSize = active.filter((p) => state.festivalGroup[p.id] === b.kind).length;
+        const chosenId =
+          tplChoice[b.start] ??
+          f?.templateId ??
+          options.find((o) => templateLetters(o).length === groupSize)?.id ??
+          options[0]?.id ??
+          '';
         const t = state.templates.find((x) => x.id === (f?.templateId ?? chosenId));
         return (
           <section key={b.start} className="card">
@@ -131,6 +131,9 @@ export function FestivalView({ state, mode, commit }: Ctx) {
               <>
                 {f.templateId !== chosenId && (
                   <p className="small muted">เปลี่ยนแพทเทิร์นแล้ว กด "จัดใหม่" เพื่อใช้แพทเทิร์นใหม่</p>
+                )}
+                {!sameGroup(f, state, b.kind) && (
+                  <p className="small req-off">คนที่จัดไว้ไม่ตรงกับกลุ่มที่เลือกตอนนี้ — กด "จัดใหม่" เพื่อใช้กลุ่มล่าสุด</p>
                 )}
                 <LetterList f={f} t={t} people={people} onPick={(letter) => setPick({ f, letter })} />
                 <FestivalGrid f={f} t={t} people={people} />
@@ -237,4 +240,50 @@ function FestivalGrid({
       </table>
     </div>
   );
+}
+
+function GroupPicker({ state, commit }: Pick<Ctx, 'state' | 'commit'>) {
+  const active = state.people.filter((p) => p.active);
+  const count = (k: FestivalKind) => active.filter((p) => state.festivalGroup[p.id] === k).length;
+  const unset = active.filter((p) => !state.festivalGroup[p.id]);
+  const set = (id: string, k: FestivalKind) => {
+    const next: AppState = { ...state, festivalGroup: { ...state.festivalGroup, [id]: k } };
+    commit(next);
+  };
+  return (
+    <section className="card">
+      <h3>ใครอยู่ปีใหม่ / สงกรานต์</h3>
+      <p className="small">
+        🎆 ปีใหม่ <b>{count('newyear')}</b> คน · 💦 สงกรานต์ <b>{count('songkran')}</b> คน
+        {unset.length > 0 && <span className="req-off"> · ยังไม่เลือก {unset.length} คน</span>}
+      </p>
+      <div className="group-list">
+        {active.map((p) => {
+          const k = state.festivalGroup[p.id];
+          return (
+            <div key={p.id} className="group-row">
+              <Chip person={p} small />
+              <div className="seg seg-sm">
+                <button className={k === 'newyear' ? 'seg-on' : ''} onClick={() => set(p.id, 'newyear')}>
+                  ปีใหม่
+                </button>
+                <button className={k === 'songkran' ? 'seg-on' : ''} onClick={() => set(p.id, 'songkran')}>
+                  สงกรานต์
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <p className="muted small">
+        จำนวนคนต้องตรงกับแพทเทิร์น (เช่น ปีใหม่ 4 วัน ใช้ 6 หรือ 7 คน) · เปลี่ยนกลุ่มแล้ว กด "จัดใหม่" ที่เทศกาลนั้นเพื่อใช้กลุ่มใหม่
+      </p>
+    </section>
+  );
+}
+
+function sameGroup(f: FestivalRecord, state: AppState, kind: FestivalKind) {
+  const arranged = new Set(Object.values(f.people));
+  const group = state.people.filter((p) => p.active && state.festivalGroup[p.id] === kind).map((p) => p.id);
+  return group.length === arranged.size && group.every((id) => arranged.has(id));
 }

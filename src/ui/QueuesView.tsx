@@ -39,7 +39,7 @@ export function QueuesView({ state, commit }: Ctx) {
         {latest && <> · สถานะหลังจัด {thaiMonthLabel(latest)}</>}
       </p>
       <div className="queue-grid">
-        {QUEUE_KEYS.map((key) => (
+        {QUEUE_KEYS.filter((key) => key !== 'festival').map((key) => (
           <section key={key} className="card">
             <h3>{QUEUE_INFO[key].label}</h3>
             <p className="muted small">{QUEUE_INFO[key].hint}</p>

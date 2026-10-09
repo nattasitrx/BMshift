@@ -743,3 +743,27 @@ table {
 .letter b {
   min-width: 1.2em;
 }
+
+.group-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 4px 16px;
+}
+
+.group-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.seg.seg-sm {
+  margin: 0;
+  flex: 0 0 auto;
+  gap: 4px;
+}
+
+.seg.seg-sm button {
+  padding: 4px 10px;
+  font-size: 14px;
+}

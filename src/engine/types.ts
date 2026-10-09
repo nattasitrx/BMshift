@@ -35,7 +35,7 @@ export type Queues = Record<QueueKey, string[]>;
 export const QUEUE_INFO: Record<QueueKey, { label: string; hint: string }> = {
   adjacent: { label: 'หยุดติดกัน', hint: 'วันหยุดนักขัตฤกษ์ที่ติดเสาร์–อาทิตย์ (รวมจันทร์/ศุกร์)' },
   midweek: { label: 'หยุดไม่ติดกัน', hint: 'วันหยุดกลางสัปดาห์ที่ไม่ติดเสาร์–อาทิตย์' },
-  festival: { label: 'ปีใหม่ / สงกรานต์', hint: 'ปีใหม่ใช้คนต้นคิว สงกรานต์ใช้คนที่เหลือ ทุกคนได้อยู่ 1 เทศกาลต่อปี' },
+  festival: { label: 'ปีใหม่ / สงกรานต์', hint: 'ไม่ใช้แล้ว — เลือกกลุ่มในแท็บเทศกาล' },
   twoWeekend: { label: '2 wk (อยู่ ส-อา 2 รอบ)', hint: 'ใช้เมื่อคนไม่พอกับจำนวนเสาร์–อาทิตย์' },
   noWeekend: { label: 'ไม่อยู่ ส-อา', hint: 'ใช้เมื่อคนเกินจำนวนเสาร์–อาทิตย์' },
   extra: { label: 'เวรเสริม', hint: 'เสาร์–อาทิตย์ปกติ คนละ 1 สุดสัปดาห์' },
@@ -102,9 +102,9 @@ export interface BlockRecord {
 export interface FestivalRecord extends BlockRecord {
   kind: 'newyear' | 'songkran';
   arrangedAt: string;
-  /** คิวเทศกาลก่อนจัดครั้งนี้ (ใช้ตอนกดจัดใหม่) */
-  queueBefore: string[];
 }
+
+export type FestivalKind = 'newyear' | 'songkran';
 
 export type WeekendRole = 'A' | 'B' | 'C';
 
@@ -136,5 +136,7 @@ export interface AppState {
   settings: Settings;
   months: Record<string, MonthRecord>;
   festivals: FestivalRecord[];
+  /** ใครอยู่ปีใหม่ ใครอยู่สงกรานต์ (เลือกเองในแท็บเทศกาล) */
+  festivalGroup: Record<string, FestivalKind>;
   days: Record<string, DayAssign>;
 }

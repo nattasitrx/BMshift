@@ -200,19 +200,35 @@ describe('festivals (ปีใหม่/สงกรานต์ จัดแย
     for (const d of ['2027-01-01', '2027-01-02', '2027-01-03']) expect(jan.days[d]).toEqual(s.days[d]);
   });
 
-  it('New Year and Songkran together cover everyone', () => {
+  it('uses exactly the people chosen for each festival', () => {
     let s = seedState();
-    s = { ...s, holidays: [...s.holidays, { date: '2027-04-16', name: 'วันหยุดพิเศษ', festival: 'songkran' as const }] };
+    const ids = s.people.map((p) => p.id);
+    // ปีใหม่ 6 คน (ny4-6), สงกรานต์ 8 คน (sk6-8 เมื่อหยุด 13–18 เม.ย.)
+    s = {
+      ...s,
+      festivalGroup: Object.fromEntries(ids.map((id, i) => [id, i < 6 ? 'newyear' : 'songkran'] as const)),
+      holidays: [...s.holidays, { date: '2027-04-16', name: 'วันหยุดพิเศษ', festival: 'songkran' as const }],
+    };
     s = arrangeAll(s);
     const ny = s.festivals.find((f) => f.kind === 'newyear')!;
     const sk = s.festivals.find((f) => f.kind === 'songkran')!;
-    expect(sk).toBeTruthy();
-    const all = new Set([...Object.values(ny.people), ...Object.values(sk.people)]);
-    expect(all.size).toBe(14);
+    expect(ny.templateId).toBe('ny4-6');
+    expect(sk.templateId).toBe('sk6-8');
+    expect(new Set(Object.values(ny.people))).toEqual(new Set(ids.slice(0, 6)));
+    expect(new Set(Object.values(sk.people))).toEqual(new Set(ids.slice(6)));
   });
 
-  it('re-arranging restores the queue first; swapping a letter moves its cells', () => {
-    let s = seedState();
+  it('refuses when the group size does not match any pattern', () => {
+    const s = seedState();
+    const ids = s.people.map((p) => p.id);
+    const bad = { ...s, festivalGroup: Object.fromEntries(ids.map((id, i) => [id, i < 5 ? 'newyear' : 'songkran'] as const)) };
+    const [b] = listFestivalBlocks(bad, '2026-12', 1);
+    const r = arrangeFestival(bad, [], b);
+    expect('error' in r && r.error).toContain('5 คน');
+  });
+
+  it('re-arranging keeps the group; swapping a letter moves its cells; removing clears them', () => {
+    const s = seedState();
     const [b] = listFestivalBlocks(s, '2026-12', 1);
     const r1 = arrangeFestival(s, [], b, { seed: 1 });
     if (!('state' in r1)) throw new Error(r1.error);
@@ -228,6 +244,5 @@ describe('festivals (ปีใหม่/สงกรานต์ จัดแย
     const removed = removeFestival(moved, moved.festivals[0]);
     expect(removed.festivals).toHaveLength(0);
     expect(removed.days['2026-12-31']?.O).toBeUndefined();
-    expect(removed.queues.festival).toEqual(s.queues.festival);
   });
 });

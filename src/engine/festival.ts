@@ -1,11 +1,10 @@
-import { detectBlocks, holidayMap, isOffDay, pickTemplate, templateCells, templateLetters, type DetectedBlock } from './blocks';
+import { detectBlocks, holidayMap, isOffDay, templateCells, templateLetters, type DetectedBlock } from './blocks';
 import { BIT, maskCost, type CostCtx } from './cost';
 import { addDays, dateRange, shiftMonth } from './dates';
-import { normalizeQueues, takeFromQueue } from './generate';
 import { mulberry32, shuffle } from './rng';
 import { SLOTS, type AppState, type DayAssign, type FestivalRecord, type ShiftRequest, type Template } from './types';
 
-// ปีใหม่/สงกรานต์จัดแยกจากการจัดรายเดือน: เลือกแพทเทิร์น หยิบคนจากคิวเทศกาล แล้วบันทึกเป็นเวรตายตัว
+// ปีใหม่/สงกรานต์จัดแยกจากการจัดรายเดือน: ใช้คนตามกลุ่มที่เลือกไว้ จัดลงแพทเทิร์น แล้วบันทึกเป็นเวรตายตัว
 // ตอนจัดรายเดือน เวรเหล่านี้นับเข้ายอดของแต่ละคนก่อน แล้วค่อยเฉลี่ยเวรที่เหลือ
 
 export type FestivalBlock = DetectedBlock & { kind: 'newyear' | 'songkran' };
@@ -69,18 +68,30 @@ export function arrangeFestival(
 ): ArrangeResult | { error: string } {
   const rng = mulberry32(opts.seed ?? Date.now());
   const active = state.people.filter((p) => p.active);
-  const activeSet = new Set(active.map((p) => p.id));
   const existing = findFestival(state, block);
   const others = (state.festivals ?? []).filter((f) => f !== existing);
 
+  const name = block.kind === 'newyear' ? 'ปีใหม่' : 'สงกรานต์';
+  const group = active.filter((p) => state.festivalGroup?.[p.id] === block.kind).map((p) => p.id);
+  if (group.length === 0) return { error: `ยังไม่ได้เลือกว่าใครอยู่${name}` };
+
+  // แพทเทิร์นต้องใช้จำนวนคนเท่ากับกลุ่มที่เลือก
   let template: Template | undefined;
   if (opts.templateId) template = state.templates.find((t) => t.id === opts.templateId);
-  else template = pickTemplate(block, { ...state, festivals: others }, active.length).template;
+  else template = festivalTemplates(state, block).find((t) => templateLetters(t).length === group.length);
   if (!template) {
-    return { error: `ไม่มีแพทเทิร์น${block.kind === 'newyear' ? 'ปีใหม่' : 'สงกรานต์'} ${block.days.length} วัน — เพิ่มในหน้าตั้งค่า` };
+    const sizes = festivalTemplates(state, block).map((t) => templateLetters(t).length);
+    return {
+      error: sizes.length
+        ? `เลือกอยู่${name}ไว้ ${group.length} คน แต่แพทเทิร์น${name} ${block.days.length} วัน ใช้ ${sizes.join(' หรือ ')} คน — ปรับจำนวนคน หรือเพิ่มแพทเทิร์นในหน้าตั้งค่า`
+        : `ไม่มีแพทเทิร์น${name} ${block.days.length} วัน — เพิ่มในหน้าตั้งค่า`,
+    };
+  }
+  const letters = templateLetters(template);
+  if (letters.length !== group.length) {
+    return { error: `แพทเทิร์น "${template.label}" ใช้ ${letters.length} คน แต่เลือกอยู่${name}ไว้ ${group.length} คน` };
   }
 
-  const letters = templateLetters(template);
   const span = [block.eve, ...block.days];
   const off = new Map<string, Set<string>>();
   const want = new Map<string, Set<string>>();
@@ -89,13 +100,10 @@ export function arrangeFestival(
     if (!m.has(r.personId)) m.set(r.personId, new Set());
     m.get(r.personId)!.add(r.date);
   }
-  const free = (id: string) => activeSet.has(id) && !span.some((d) => off.get(id)?.has(d));
-
-  const queueBefore = existing?.queueBefore ?? normalizeQueues(state.queues, state.people.map((p) => p.id)).festival;
-  const queue = [...queueBefore];
-  const picked = takeFromQueue(queue, letters.length, [free, (id) => activeSet.has(id)]);
-  if (picked.length < letters.length) return { error: `คนไม่พอ (ต้องการ ${letters.length} คน)` };
-  const warnings = picked.filter((id) => !free(id)).map((id) => `${nameOf(state, id)} แจ้งไม่ว่างในช่วงนี้ แต่ถึงคิว`);
+  const picked = group;
+  const warnings = picked
+    .filter((id) => span.some((d) => off.get(id)?.has(d)))
+    .map((id) => `${nameOf(state, id)} แจ้งไม่ว่างในช่วง${name} — ตรวจสอบหรือแลกเวร`);
 
   const days: Record<string, DayAssign> = JSON.parse(JSON.stringify(state.days));
   if (existing) clearFestivalCells(state, days, existing);
@@ -150,22 +158,11 @@ export function arrangeFestival(
     templateId: template.id,
     people: best,
     arrangedAt: new Date().toISOString(),
-    queueBefore,
   };
   writeFestivalCells(state, days, festival);
 
   const festivals = [...others, festival].sort((a, b) => a.start.localeCompare(b.start));
-  const isLatest = festivals[festivals.length - 1] === festival;
-  return {
-    festival,
-    warnings,
-    state: {
-      ...state,
-      days,
-      festivals,
-      queues: isLatest ? { ...state.queues, festival: queue } : state.queues,
-    },
-  };
+  return { festival, warnings, state: { ...state, days, festivals } };
 }
 
 /** เปลี่ยนคนในตำแหน่ง (ตัวอักษร) ของเทศกาล */
@@ -177,18 +174,11 @@ export function setFestivalPerson(state: AppState, f: FestivalRecord, letter: st
   return { ...state, days, festivals: state.festivals.map((x) => (x === f ? updated : x)) };
 }
 
-/** ลบการจัดเทศกาล และคืนคิวเทศกาลถ้าเป็นการจัดล่าสุด */
+/** ลบการจัดเทศกาล */
 export function removeFestival(state: AppState, f: FestivalRecord): AppState {
   const days: Record<string, DayAssign> = JSON.parse(JSON.stringify(state.days));
   clearFestivalCells(state, days, f);
-  const festivals = state.festivals.filter((x) => x !== f);
-  const wasLatest = !festivals.some((x) => x.start > f.start);
-  return {
-    ...state,
-    days,
-    festivals,
-    queues: wasLatest ? { ...state.queues, festival: f.queueBefore } : state.queues,
-  };
+  return { ...state, days, festivals: state.festivals.filter((x) => x !== f) };
 }
 
 function nameOf(state: AppState, id: string) {

@@ -1,4 +1,4 @@
-import type { AppState, DayAssign, MonthRecord, Person, Queues, Template } from './types';
+import type { AppState, DayAssign, FestivalKind, MonthRecord, Person, Queues, Template } from './types';
 
 const P = (id: string, name: string, color: string, canDouble = false): Person => ({
   id,
@@ -230,6 +230,7 @@ export function seedState(): AppState {
     settings: { festivalCountsAsWeekend: false, templateOverride: {} },
     days,
     festivals: [],
+    festivalGroup: defaultFestivalGroup(SEED_PEOPLE.map((p) => p.id), SEED_QUEUES.festival),
     months: {
       '2026-10': imported([{ ...wk('2026-10-31', '2026-11-01', '2026-10-30', '', 'pu', 'la', 'pa'), people: { B: 'pu', C: 'la' } }], {}, []),
       '2026-11': imported(
@@ -248,4 +249,11 @@ export function seedState(): AppState {
       ),
     },
   };
+}
+
+/** ค่าเริ่มต้น: ครึ่งแรกของลำดับอยู่ปีใหม่ ที่เหลืออยู่สงกรานต์ (แก้ได้ในแท็บเทศกาล) */
+export function defaultFestivalGroup(ids: string[], order: string[] = []): Record<string, FestivalKind> {
+  const list = [...order.filter((id) => ids.includes(id)), ...ids.filter((id) => !order.includes(id))];
+  const half = Math.round(list.length / 2);
+  return Object.fromEntries(list.map((id, i) => [id, i < half ? 'newyear' : 'songkran']));
 }

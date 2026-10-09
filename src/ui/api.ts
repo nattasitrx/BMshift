@@ -1,4 +1,4 @@
-import { seedState } from '../engine/seed';
+import { defaultFestivalGroup, seedState } from '../engine/seed';
 import type { AppState, ShiftRequest } from '../engine/types';
 
 // ถ้าเปิดบน Netlify ข้อมูลอยู่ที่เซิร์ฟเวอร์ (ทุกคนเห็นตรงกัน)
@@ -42,7 +42,11 @@ export async function loadState(): Promise<{ mode: Mode; state: AppState; etag: 
 
 /** เติมฟิลด์ใหม่ให้ข้อมูลที่บันทึกไว้ก่อนอัปเดต */
 function migrate(s: AppState): AppState {
-  return { ...s, festivals: s.festivals ?? [] };
+  return {
+    ...s,
+    festivals: s.festivals ?? [],
+    festivalGroup: s.festivalGroup ?? defaultFestivalGroup(s.people.map((p) => p.id), s.queues?.festival),
+  };
 }
 
 export async function saveState(mode: Mode, state: AppState, etag: string | null): Promise<string | null> {
