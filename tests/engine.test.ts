@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { detectBlocks, templateLetters } from '../src/engine/blocks';
-import { daysInMonth, isWeekend, shiftMonth, weekday } from '../src/engine/dates';
+import { daysInMonth, isWeekend, shiftMonth, thaiDateLabel, weekday } from '../src/engine/dates';
 import { arrangeFestival, listFestivalBlocks, removeFestival, setFestivalPerson } from '../src/engine/festival';
 import { clearMonth, defaultSmcDays, generateBest, generateMonth, takeFromQueue } from '../src/engine/generate';
 import { undoMonth, withHistory } from '../src/engine/history';
@@ -432,5 +432,13 @@ describe('ใบเวรน้อย / ค่าเวร', () => {
     expect(rateFor(t, '2026-12')).toBe(820);
     expect(rateFor(t, '2027-01')).toBe(900);
     expect(rateFor(t, '2027-06')).toBe(900);
+  });
+});
+
+describe('วันที่ภาษาไทย', () => {
+  it('ใช้ตัวย่อเดือนมาตรฐาน', () => {
+    expect(thaiDateLabel('2026-11-03')).toBe('อ 3 พ.ย. 69');
+    expect(thaiDateLabel('2027-01-01')).toBe('ศ 1 ม.ค. 70');
+    expect(thaiDateLabel('2026-12-31')).toBe('พฤ 31 ธ.ค. 69');
   });
 });

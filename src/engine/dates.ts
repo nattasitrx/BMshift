@@ -52,6 +52,10 @@ const THAI_MONTHS = [
   'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
   'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม',
 ];
+const THAI_MONTHS_SHORT = [
+  'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
+  'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.',
+];
 const THAI_DAYS_SHORT = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
 
 export function thaiMonthLabel(month: string): string {
@@ -65,7 +69,7 @@ export function thaiDayShort(d: string): string {
 
 export function thaiDateLabel(d: string): string {
   const [y, m, day] = d.split('-').map(Number);
-  return `${thaiDayShort(d)} ${day} ${THAI_MONTHS[m - 1].slice(0, 3)} ${String(y + 543).slice(2)}`;
+  return `${thaiDayShort(d)} ${day} ${THAI_MONTHS_SHORT[m - 1]} ${String(y + 543).slice(2)}`;
 }
 
 /** จันทร์ที่เท่าไหร่ของเดือน (1 = จันทร์แรก) */

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { daysInMonth, thaiDateLabel, thaiMonthLabel } from '../engine/dates';
+import { printName } from '../engine/names';
 import { baht, paidSlots, slipFor, type Slip } from '../engine/pay';
 import type { AppState } from '../engine/types';
 import type { Ctx } from './App';
@@ -14,8 +15,8 @@ const PER_PAGE = 15;
 function SlipCard({ state, slip }: { state: AppState; slip: Slip }) {
   const p = state.people.find((x) => x.id === slip.personId);
   if (!p) return null;
-  // ใบเวรน้อยส่งเลขา: ใช้ชื่อจริงเต็มตามที่กรอกไว้ (ไม่มี = ชื่อเล่น)
-  const real = p.fullName?.trim() || p.name;
+  // ใช้แค่ชื่อจริง (ไม่มีคำนำหน้า/นามสกุล; ไม่มีชื่อจริง = ชื่อเล่น)
+  const real = printName(p);
   const paid = new Set(paidSlots(state));
   const withSmc = paid.has('SMC');
   // แสดงเฉพาะวันที่มีเวรที่นับค่าเวร
