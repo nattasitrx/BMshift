@@ -3,7 +3,6 @@ import { holidayMap, isOffDay } from '../engine/blocks';
 import { daysInMonth, shiftMonth, thaiDateLabel, thaiDayShort, thaiMonthLabel } from '../engine/dates';
 import { clearMonth, generateBest, stagesOf } from '../engine/generate';
 import { undoMonth, withHistory } from '../engine/history';
-import { nextBaseline, swapsOf } from '../engine/swaps';
 import { BIT } from '../engine/cost';
 import { indexRequests, REQUEST_SLOT_LABEL } from '../engine/requests';
 import { describeChange, holidayChange } from '../engine/holidayCheck';
@@ -53,18 +52,13 @@ export function ScheduleView({ state, commit, requests, month }: Ctx) {
       const r = generateBest(state, requests, month, action === 'extra' ? 2 : 4, Date.now(), action);
       next = clone(state);
       next.days = r.days;
-      next.months[month] = {
-        ...r.record,
-        baseline: nextBaseline(month, state.days, r.days, state.months[month], action === 'all'),
-      };
+      next.months[month] = r.record;
       const latest = Object.keys(state.months).sort().pop() ?? month;
       if (month >= latest) next.queues = r.queues;
     }
     await commit(withHistory(state, next, month, by, ACTION_LABEL[action]));
   };
   const holChange = holidayChange(state, month);
-  // ช่องที่แลก/ฝากเวร (คนอยู่จริงไม่ใช่คนที่ระบบจัด) key = วันที่|ช่อง → เจ้าของเดิม
-  const swapped = new Map(swapsOf(state, [month]).map((x) => [`${x.date}|${x.slot}`, x.from]));
   const pendingHol = state.holidays.filter((h) => h.pending && h.date.startsWith(month));
   const log = state.monthLog?.[month] ?? [];
   const lastLog = log[log.length - 1];
@@ -166,13 +160,11 @@ export function ScheduleView({ state, commit, requests, month }: Ctx) {
                   {COLS.map((c) => {
                     const usable = off ? c !== 'SMC' : c === 'PM' || c === 'N' || c === 'SMC';
                     const p = a[c] ? people.get(a[c]!) : undefined;
-                    const owner = swapped.get(`${d}|${c}`);
                     return (
                       <td
                         key={c}
-                        className={(usable ? 'cell' : 'cell na') + (owner ? ' swapped' : '')}
+                        className={usable ? 'cell' : 'cell na'}
                         style={p ? { background: p.color } : undefined}
-                        title={owner ? `อยู่แทน ${people.get(owner)?.name ?? owner}` : undefined}
                         onClick={usable ? () => setEdit({ date: d, col: c }) : undefined}
                       >
                         {p && <Chip person={p} small />}
