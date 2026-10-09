@@ -1,0 +1,234 @@
+import { useMemo, useState } from 'react';
+import { holidayMap, isOffDay } from '../engine/blocks';
+import { daysInMonth, shiftMonth, thaiDateLabel, thaiDayShort, thaiMonthLabel } from '../engine/dates';
+import { generateMonth } from '../engine/generate';
+import { findIssues, summarizeMonth } from '../engine/summary';
+import { SLOT_LABEL, type Slot } from '../engine/types';
+import type { Ctx } from './App';
+import { Chip, clone, Modal } from './common';
+
+type Col = Slot | 'SMC';
+const COLS: Col[] = ['O', 'I', 'S', 'PM', 'N', 'SMC'];
+const ROLE_LOAD: Record<string, string> = { A: 'A (3 เวร)', B: 'B (3 เวร)', C: 'C (4 เวร)' };
+
+export function ScheduleView({ state, commit, requests, month }: Ctx) {
+  const [edit, setEdit] = useState<{ date: string; col: Col } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const people = new Map(state.people.map((p) => [p.id, p]));
+  const hol = holidayMap(state.holidays);
+  const days = daysInMonth(month);
+  const record = state.months[month];
+  const issues = useMemo(
+    () => findIssues(state.days, state.people, requests, month, state.holidays),
+    [state.days, state.people, requests, month, state.holidays],
+  );
+  const summary = useMemo(() => summarizeMonth(state, month), [state, month]);
+  const reqByDate = new Map<string, { off: string[]; want: string[] }>();
+  for (const r of requests) {
+    const e = reqByDate.get(r.date) ?? { off: [], want: [] };
+    e[r.type].push(people.get(r.personId)?.name ?? r.personId);
+    reqByDate.set(r.date, e);
+  }
+
+  const generate = async () => {
+    const later = Object.keys(state.months).filter((m) => m > month && !state.months[m].info.some((i) => i.startsWith('นำเข้า')));
+    const msg = [
+      record ? `จัดเวร ${thaiMonthLabel(month)} ใหม่ทั้งเดือน? การแก้ไขมือในเดือนนี้จะหาย` : `จัดเวร ${thaiMonthLabel(month)} อัตโนมัติ?`,
+      later.length ? `\n\nเดือนหลังจากนี้ (${later.map(thaiMonthLabel).join(', ')}) จัดไว้แล้ว ควรจัดใหม่ตามลำดับด้วย` : '',
+    ].join('');
+    if (!confirm(msg)) return;
+    setBusy(true);
+    await new Promise((r) => setTimeout(r, 30));
+    try {
+      const r = generateMonth(state, requests, month);
+      const next = clone(state);
+      next.days = r.days;
+      next.months[month] = r.record;
+      const latest = Object.keys(state.months).sort().pop() ?? month;
+      if (month >= latest) next.queues = r.queues;
+      await commit(next);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const setCell = async (date: string, col: Col, id: string | null) => {
+    const next = clone(state);
+    const a = { ...(next.days[date] ?? {}) };
+    if (id) a[col] = id;
+    else delete a[col];
+    next.days[date] = a;
+    const rec = next.months[month];
+    if (col === 'SMC' && rec) {
+      rec.smcDays = id ? [...new Set([...rec.smcDays, date])].sort() : rec.smcDays.filter((d) => d !== date);
+    }
+    setEdit(null);
+    await commit(next);
+  };
+
+  const issueDates = new Set(issues.filter((i) => i.level === 'error').map((i) => i.date));
+
+  return (
+    <div>
+      <div className="toolbar no-print">
+        <button className="btn-primary" onClick={generate} disabled={busy}>
+          {busy ? 'กำลังจัด…' : record ? '🔄 จัดใหม่อัตโนมัติ' : '✨ จัดเวรอัตโนมัติ'}
+        </button>
+        <button className="btn" onClick={() => window.print()}>
+          🖨️ พิมพ์
+        </button>
+      </div>
+      {!record && (
+        <p className="muted no-print">
+          เดือนนี้ยังไม่ได้จัด
+          {!state.months[shiftMonth(month, -1)] && ' (เดือนก่อนหน้ายังไม่ได้จัด ระบบจะใช้คิวปัจจุบัน)'}
+        </p>
+      )}
+
+      <h2 className="print-title">ตารางเวร {thaiMonthLabel(month)}</h2>
+      <div className="table-wrap">
+        <table className="sched">
+          <thead>
+            <tr>
+              <th>วันที่</th>
+              {COLS.map((c) => (
+                <th key={c}>{SLOT_LABEL[c]}</th>
+              ))}
+              <th className="col-req">ไม่ว่าง / ขออยู่</th>
+            </tr>
+          </thead>
+          <tbody>
+            {days.map((d) => {
+              const off = isOffDay(d, hol);
+              const a = state.days[d] ?? {};
+              const rq = reqByDate.get(d);
+              return (
+                <tr key={d} className={(off ? 'off ' : '') + (issueDates.has(d) ? 'has-issue' : '')}>
+                  <td className="date-cell">
+                    <b>{Number(d.slice(8))}</b> <span className="dow">{thaiDayShort(d)}</span>
+                    {hol.has(d) && <div className="hol-name">{hol.get(d)!.name}</div>}
+                  </td>
+                  {COLS.map((c) => {
+                    const usable = off ? c !== 'SMC' : c === 'PM' || c === 'N' || c === 'SMC';
+                    const p = a[c] ? people.get(a[c]!) : undefined;
+                    return (
+                      <td
+                        key={c}
+                        className={usable ? 'cell' : 'cell na'}
+                        style={p ? { background: p.color } : undefined}
+                        onClick={usable ? () => setEdit({ date: d, col: c }) : undefined}
+                      >
+                        {p && <Chip person={p} small />}
+                      </td>
+                    );
+                  })}
+                  <td className="col-req">
+                    {rq?.off.length ? <span className="req-off">{rq.off.join('/')}</span> : null}
+                    {rq?.want.length ? <span className="req-want"> *ขออยู่ {rq.want.join('/')}</span> : null}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {issues.length > 0 && (
+        <section className="card">
+          <h3>⚠️ ตรวจพบ</h3>
+          <ul className="issues">
+            {issues.map((i, k) => (
+              <li key={k} className={i.level}>
+                {thaiDateLabel(i.date)} — {i.message}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      <section className="card">
+        <h3>สรุปจำนวนเวร</h3>
+        <div className="table-wrap">
+          <table className="summary">
+            <thead>
+              <tr>
+                <th>ชื่อ</th>
+                <th>เวรรวม</th>
+                <th>เช้า</th>
+                <th>บ่าย</th>
+                <th>ดึก</th>
+                <th>เสริม</th>
+                <th>SMC</th>
+                <th>ส-อา</th>
+              </tr>
+            </thead>
+            <tbody>
+              {summary.map((r) => (
+                <tr key={r.id}>
+                  <td>
+                    <Chip person={people.get(r.id)} small />
+                  </td>
+                  <td>
+                    <b>{r.total}</b>
+                  </td>
+                  <td>{r.morning}</td>
+                  <td>{r.afternoon}</td>
+                  <td>{r.night}</td>
+                  <td>{r.extra}</td>
+                  <td>{r.smc}</td>
+                  <td className="nowrap">{r.weekendRoles.map((x) => ROLE_LOAD[x] ?? x).join(', ') || '–'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="muted small">เวรรวม = OPD + IPD + บ่าย + ดึก (ไม่นับเสริมและ SMC) นับตามวันที่ในเดือนนี้</p>
+      </section>
+
+      {record && (
+        <section className="card no-print">
+          <h3>ระบบตัดสินใจอย่างไร</h3>
+          <ul className="info">
+            {record.info.map((x, k) => (
+              <li key={k}>{x}</li>
+            ))}
+          </ul>
+          {record.warnings.length > 0 && (
+            <ul className="issues">
+              {record.warnings.map((x, k) => (
+                <li key={k} className="error">
+                  {x}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+
+      {edit && (
+        <Modal title={`${thaiDateLabel(edit.date)} · ${SLOT_LABEL[edit.col]}`} onClose={() => setEdit(null)}>
+          <div className="picker">
+            {state.people
+              .filter((p) => p.active)
+              .map((p) => {
+                const isOff = requests.some((r) => r.personId === p.id && r.date === edit.date && r.type === 'off');
+                const busyToday = COLS.filter((c) => c !== edit.col && state.days[edit.date]?.[c] === p.id);
+                return (
+                  <button key={p.id} className="pick" onClick={() => setCell(edit.date, edit.col, p.id)}>
+                    <Chip person={p} />
+                    {isOff && <span className="req-off"> ไม่ว่าง</span>}
+                    {busyToday.length > 0 && (
+                      <span className="muted small"> มี{busyToday.map((c) => SLOT_LABEL[c]).join('/')}แล้ว</span>
+                    )}
+                  </button>
+                );
+              })}
+            <button className="pick pick-clear" onClick={() => setCell(edit.date, edit.col, null)}>
+              — ว่าง —
+            </button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}

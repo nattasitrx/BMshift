@@ -1,0 +1,599 @@
+import { detectBlocks, holidayMap, isOffDay, pickTemplate, templateLetters, type DetectedBlock } from './blocks';
+import { BIT, COUNTED, maskCost, popcount, type CostCtx } from './cost';
+import { addDays, dateRange, daysInMonth, monthOf, nthWeekdayOfMonth, thaiDateLabel, weekday } from './dates';
+import { mulberry32, randInt, shuffle, type Rng } from './rng';
+import { findIssues } from './summary';
+import {
+  SLOTS,
+  type AppState,
+  type BlockRecord,
+  type DayAssign,
+  type MonthRecord,
+  type QueueKey,
+  type Queues,
+  type ShiftRequest,
+  type Slot,
+  type Template,
+  type WeekendRole,
+} from './types';
+
+export const QUEUE_KEYS: QueueKey[] = [
+  'adjacent', 'midweek', 'festival', 'twoWeekend', 'noWeekend', 'extra', 'smc', 'totalExtra', 'nightExtra',
+];
+
+export interface GenerateOptions {
+  seed?: number;
+  iterations?: number;
+}
+
+export interface GenerateResult {
+  days: Record<string, DayAssign>;
+  record: MonthRecord;
+  queues: Queues;
+}
+
+const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x));
+
+/** ตัดรายชื่อที่ไม่มีแล้วออก และต่อคนใหม่ไว้ท้ายคิว (คนที่พักงานยังอยู่ในคิว แต่จะถูกข้าม) */
+export function normalizeQueues(q: Partial<Queues>, ids: string[]): Queues {
+  const out = {} as Queues;
+  const known = new Set(ids);
+  for (const key of QUEUE_KEYS) {
+    const list = [...new Set((q[key] ?? []).filter((id) => known.has(id)))];
+    for (const id of ids) if (!list.includes(id)) list.push(id);
+    out[key] = list;
+  }
+  return out;
+}
+
+/**
+ * หยิบคนจากหัวคิว n คน โดยลองเงื่อนไขทีละระดับ (เข้มก่อน แล้วค่อยผ่อน)
+ * คนที่ถูกหยิบย้ายไปท้ายคิว คนที่ถูกข้ามยังอยู่หัวคิวรอรอบถัดไป
+ */
+export function takeFromQueue(queue: string[], n: number, tiers: ((id: string) => boolean)[]): string[] {
+  const picked: string[] = [];
+  for (const ok of tiers) {
+    for (const id of queue) {
+      if (picked.length >= n) break;
+      if (!picked.includes(id) && ok(id)) picked.push(id);
+    }
+    if (picked.length >= n) break;
+  }
+  for (const id of picked) {
+    queue.splice(queue.indexOf(id), 1);
+    queue.push(id);
+  }
+  return picked;
+}
+
+export function defaultSmcDays(month: string, holidays: AppState['holidays']): string[] {
+  const hol = holidayMap(holidays);
+  return daysInMonth(month).filter((d) => {
+    if (hol.has(d)) return false;
+    const w = weekday(d);
+    return w === 3 || (w === 1 && [1, 3].includes(nthWeekdayOfMonth(d)));
+  });
+}
+
+interface Cell {
+  date: string;
+  slot: Slot;
+  letter: string;
+}
+
+function templateCells(b: { eve: string; days: string[] }, t: Template): Cell[] {
+  const cells: Cell[] = [];
+  t.rows.forEach((row, r) => {
+    const date = r === 0 ? b.eve : b.days[r - 1];
+    if (!date) return;
+    row.forEach((letter, c) => {
+      if (letter) cells.push({ date, slot: SLOTS[c], letter });
+    });
+  });
+  return cells;
+}
+
+export function generateMonth(
+  state: AppState,
+  requests: ShiftRequest[],
+  month: string,
+  opts: GenerateOptions = {},
+): GenerateResult {
+  const rng: Rng = mulberry32(opts.seed ?? Date.now());
+  const warnings: string[] = [];
+  const info: string[] = [];
+  const allIds = state.people.map((p) => p.id);
+  const active = state.people.filter((p) => p.active);
+  const activeIds = active.map((p) => p.id);
+  const activeSet = new Set(activeIds);
+  const isActive = (id: string) => activeSet.has(id);
+  const nameOf = (id: string) => state.people.find((p) => p.id === id)?.name ?? id;
+  const q = normalizeQueues(clone(state.months[month]?.queuesBefore ?? state.queues), allIds);
+  const queuesBefore = clone(q);
+  const holidays = holidayMap(state.holidays);
+  const mDays = daysInMonth(month);
+  const first = mDays[0];
+  const last = mDays[mDays.length - 1];
+
+  // ---- 1. ล้างเดือนนี้ (ยกเว้นวันที่เป็นของช่วงหยุดที่เดือนก่อนจัดไว้แล้ว) ----
+  const days = clone(state.days);
+  const kept = new Set<string>();
+  for (const [m, rec] of Object.entries(state.months)) {
+    if (m === month) continue;
+    for (const b of rec.blocks) for (const d of dateRange(b.start, b.end)) if (monthOf(d) === month) kept.add(d);
+  }
+  const old = state.months[month];
+  if (old) for (const b of old.blocks) for (const d of dateRange(b.start, b.end)) if (monthOf(d) !== month) delete days[d];
+  for (const d of mDays) if (!kept.has(d)) delete days[d];
+
+  const offBy = new Map<string, Set<string>>();
+  const wantBy = new Map<string, Set<string>>();
+  for (const r of requests) {
+    const map = r.type === 'off' ? offBy : wantBy;
+    if (!map.has(r.personId)) map.set(r.personId, new Set());
+    map.get(r.personId)!.add(r.date);
+  }
+  const isOff = (id: string, d: string) => offBy.get(id)?.has(d) ?? false;
+
+  // ---- ช่วงวันที่ใช้คำนวณ (เผื่อก่อน/หลังเดือนเพื่อตรวจเวรต่อเนื่อง) ----
+  const dates = dateRange(addDays(first, -3), addDays(last, 10));
+  const idx = new Map(dates.map((d, i) => [d, i]));
+  const monthIdx = mDays.map((d) => idx.get(d)!);
+  const plainDay = new Set<number>();
+  const offDay = new Set<number>();
+  dates.forEach((d, i) => {
+    if (isOffDay(d, holidays)) offDay.add(i);
+    else if (!isOffDay(addDays(d, 1), holidays)) plainDay.add(i);
+  });
+  const ctx = new Map<string, CostCtx>();
+  for (const p of active) {
+    const toIdx = (s?: Set<string>) =>
+      new Set([...(s ?? [])].map((d) => idx.get(d)).filter((x): x is number => x !== undefined));
+    ctx.set(p.id, { off: toIdx(offBy.get(p.id)), want: toIdx(wantBy.get(p.id)), canDouble: p.canDouble, plainDay, offDay });
+  }
+
+  const buildMasks = () => {
+    const masks = new Map<string, number[]>();
+    for (const id of allIds) masks.set(id, new Array(dates.length).fill(0));
+    dates.forEach((d, i) => {
+      const a = days[d];
+      if (!a) return;
+      for (const s of [...SLOTS, 'SMC'] as const) {
+        const id = a[s];
+        if (id && masks.has(id)) masks.get(id)![i] |= BIT[s];
+      }
+    });
+    return masks;
+  };
+  const costWith = (id: string, base: number[], extra: { i: number; bit: number }[]) => {
+    const m = [...base];
+    for (const e of extra) m[e.i] |= e.bit;
+    return maskCost(m, ctx.get(id)!);
+  };
+
+  const writeCells = (cells: Cell[], people: Record<string, string>, extraId?: string) => {
+    for (const c of cells) {
+      const id = c.letter === '*' ? extraId : people[c.letter];
+      if (!id) continue;
+      days[c.date] = { ...(days[c.date] ?? {}), [c.slot]: id };
+    }
+  };
+
+  const blocks = detectBlocks(month, state.holidays);
+  const records: BlockRecord[] = [];
+  const holidayUsed = new Set<string>();
+  const weekendExempt = new Set<string>();
+
+  // ---- 2. ช่วงวันหยุดราชการ (ใช้คิวของแต่ละประเภท) ----
+  for (const b of blocks.filter((x) => x.kind !== 'weekend')) {
+    const { template, error } = pickTemplate(b, state, active.length);
+    if (!template) {
+      warnings.push(error!);
+      continue;
+    }
+    const letters = templateLetters(template);
+    const key: QueueKey = b.kind === 'adjacent' ? 'adjacent' : b.kind === 'midweek' ? 'midweek' : 'festival';
+    const span = [b.eve, ...b.days];
+    const free = (id: string) => isActive(id) && !span.some((d) => isOff(id, d));
+    const picked = takeFromQueue(q[key], letters.length, [
+      (id) => free(id) && !holidayUsed.has(id),
+      free,
+      isActive,
+    ]);
+    const label = `${template.label} (${thaiDateLabel(b.start)} – ${thaiDateLabel(b.end)})`;
+    if (picked.length < letters.length) {
+      warnings.push(`คนไม่พอสำหรับ ${label}`);
+      continue;
+    }
+    for (const id of picked) if (!free(id)) warnings.push(`${nameOf(id)} ขอไม่ว่างในช่วง ${label} แต่จำเป็นต้องใช้`);
+    const people = assignLetters(b, template, letters, picked);
+    writeCells(templateCells(b, template), people);
+    picked.forEach((id) => holidayUsed.add(id));
+    const exempt = b.kind === 'adjacent' || (b.kind !== 'midweek' && state.settings.festivalCountsAsWeekend);
+    if (exempt) picked.forEach((id) => weekendExempt.add(id));
+    info.push(`${label}: ${letters.map((l) => `${l}=${nameOf(people[l])}`).join(', ')}`);
+    records.push({ start: b.start, end: b.end, eve: b.eve, kind: b.kind, templateId: template.id, people });
+  }
+
+  function assignLetters(b: DetectedBlock, t: Template, letters: string[], picked: string[]) {
+    const masks = buildMasks();
+    const cells = templateCells(b, t);
+    let best: Record<string, string> = {};
+    let bestCost = Infinity;
+    const tries = Math.min(600, factorial(letters.length));
+    for (let k = 0; k < tries; k++) {
+      const perm = shuffle(rng, picked);
+      const map: Record<string, string> = {};
+      letters.forEach((l, i) => (map[l] = perm[i]));
+      let cost = 0;
+      for (const id of picked) {
+        const extra = cells
+          .filter((c) => map[c.letter] === id && idx.has(c.date))
+          .map((c) => ({ i: idx.get(c.date)!, bit: BIT[c.slot] }));
+        cost += costWith(id, masks.get(id)!, extra);
+      }
+      if (cost < bestCost) {
+        bestCost = cost;
+        best = map;
+      }
+    }
+    return best;
+  }
+
+  // ---- 3. เสาร์–อาทิตย์ปกติ ----
+  const weekendRoles: Record<string, WeekendRole[]> = {};
+  const wkBlocks = blocks.filter((x) => x.kind === 'weekend');
+  const wt = state.templates.find((t) => t.kind === 'weekend' && t.days === 2);
+  if (wkBlocks.length && !wt) warnings.push('ไม่มีแพทเทิร์นเสาร์–อาทิตย์ปกติ');
+  if (wkBlocks.length && wt) {
+    const roles = templateLetters(wt);
+    const R = roles.length;
+    const slots = wkBlocks.length * R;
+    const pool = activeIds.filter((id) => !weekendExempt.has(id));
+    if (weekendExempt.size) info.push(`อยู่หยุดติดกันแล้ว ไม่ต้องอยู่ ส-อา: ${[...weekendExempt].map(nameOf).join(', ')}`);
+    let list = [...pool];
+    if (pool.length > slots) {
+      const skip = takeFromQueue(q.noWeekend, pool.length - slots, [(id) => pool.includes(id)]);
+      list = pool.filter((id) => !skip.includes(id));
+      info.push(`ไม่อยู่ ส-อา เดือนนี้ (ตามคิว): ${skip.map(nameOf).join(', ')}`);
+    } else if (pool.length < slots && pool.length > 0) {
+      let need = slots - pool.length;
+      const doubles: string[] = [];
+      while (need > 0) {
+        // เลี่ยงคนที่มีเวรวันหยุดราชการในเดือนนี้แล้ว (ยังอยู่หัวคิวรอรอบหน้า)
+        const take = takeFromQueue(q.twoWeekend, Math.min(need, pool.length), [
+          (id) => pool.includes(id) && !holidayUsed.has(id) && !doubles.includes(id),
+          (id) => pool.includes(id) && !doubles.includes(id),
+          (id) => pool.includes(id),
+        ]);
+        if (!take.length) break;
+        doubles.push(...take);
+        need -= take.length;
+      }
+      list.push(...doubles);
+      info.push(`อยู่ ส-อา 2 รอบ (คิว 2 wk): ${doubles.map(nameOf).join(', ')}`);
+    }
+    if (list.length < slots) warnings.push(`คนไม่พอสำหรับเสาร์–อาทิตย์ (ต้องการ ${slots} ได้ ${list.length})`);
+
+    const arr = solveWeekends(wkBlocks, wt, roles, list);
+    wkBlocks.forEach((b, w) => {
+      const people: Record<string, string> = {};
+      roles.forEach((r, k) => {
+        const id = arr[w * R + k];
+        if (!id) return;
+        people[r] = id;
+        (weekendRoles[id] ??= []).push(r as WeekendRole);
+      });
+      writeCells(templateCells(b, wt), people);
+      records.push({ start: b.start, end: b.end, eve: b.eve, kind: 'weekend', templateId: wt.id, people });
+    });
+
+    // เวรเสริมจากคิว คนละ 1 สุดสัปดาห์
+    if (wt.rows.some((row) => row.includes('*'))) {
+      const masks = buildMasks();
+      wkBlocks.forEach((b, w) => {
+        const inPattern = new Set(arr.slice(w * R, w * R + R));
+        const free = (id: string) => {
+          if (!isActive(id) || inPattern.has(id)) return false;
+          const m = masks.get(id)!;
+          if (b.days.some((d) => isOff(id, d) || m[idx.get(d)!])) return false;
+          return !(m[idx.get(b.eve)!] & BIT.N);
+        };
+        const [extraId] = takeFromQueue(q.extra, 1, [free, (id) => isActive(id) && !inPattern.has(id)]);
+        if (!extraId) {
+          warnings.push(`หาเวรเสริมไม่ได้ ${thaiDateLabel(b.start)}`);
+          return;
+        }
+        if (!free(extraId)) warnings.push(`${nameOf(extraId)} ได้เวรเสริม ${thaiDateLabel(b.start)} แม้ติดเงื่อนไข`);
+        writeCells(templateCells(b, wt), {}, extraId);
+        const rec = records.find((r) => r.start === b.start)!;
+        rec.extraId = extraId;
+        for (const d of b.days) {
+          const m = masks.get(extraId)!;
+          m[idx.get(d)!] |= BIT.S;
+        }
+      });
+    }
+  }
+
+  function solveWeekends(wks: DetectedBlock[], t: Template, roles: string[], list: string[]): string[] {
+    const R = roles.length;
+    const masks = buildMasks();
+    const cellsByWR: { i: number; bit: number }[][] = [];
+    wks.forEach((b) => {
+      const cells = templateCells(b, t);
+      roles.forEach((r) => {
+        cellsByWR.push(
+          cells.filter((c) => c.letter === r && idx.has(c.date)).map((c) => ({ i: idx.get(c.date)!, bit: BIT[c.slot] })),
+        );
+      });
+    });
+    const hist = roleHistory(state, month);
+    const n = wks.length * R;
+    // ยอดเวรต่อคนที่ควรได้ทั้งเดือน (บ่าย+ดึกทุกวัน, OPD+IPD วันหยุด) ใช้กันไม่ให้คนที่มีเวรวันหยุดอยู่แล้วได้ตำแหน่งหนัก
+    const monthSet = new Set(monthIdx);
+    const totalSlots = mDays.reduce((a, d) => a + (isOffDay(d, holidays) ? 4 : 2), 0);
+    const cap = Math.ceil(totalSlots / Math.max(1, active.length));
+    const baseCount = (id: string) => monthIdx.reduce((a, i) => a + popcount(masks.get(id)![i] & COUNTED), 0);
+    const fixedCount = new Map(list.map((id) => [id, baseCount(id)]));
+    const slotsArr = [...list];
+    while (slotsArr.length < n) slotsArr.push('');
+
+    const evaluate = (arr: string[]) => {
+      let cost = 0;
+      const extra = new Map<string, { i: number; bit: number }[]>();
+      const where = new Map<string, number[]>();
+      arr.forEach((id, k) => {
+        if (!id) return;
+        const w = Math.floor(k / R);
+        const role = roles[k % R];
+        const ws = where.get(id) ?? [];
+        if (ws.includes(w)) cost += 100_000;
+        for (const o of ws) if (Math.abs(o - w) === 1) cost += 60;
+        ws.push(w);
+        where.set(id, ws);
+        extra.set(id, [...(extra.get(id) ?? []), ...cellsByWR[k]]);
+        const h = hist[id] ?? [];
+        if (h[0] === role) cost += 30;
+        if (role === 'C' && h[0] === 'C') cost += 40;
+        cost += 6 * h.slice(0, 6).filter((x) => x === role).length;
+      });
+      for (const [id, e] of extra) {
+        cost += costWith(id, masks.get(id)!, e);
+        const load = fixedCount.get(id)! + e.filter((c) => monthSet.has(c.i)).reduce((a, c) => a + popcount(c.bit & COUNTED), 0);
+        if (load > cap) cost += 500 * (load - cap) ** 2;
+      }
+      return cost;
+    };
+
+    let best = slotsArr;
+    let bestCost = Infinity;
+    for (let restart = 0; restart < 40; restart++) {
+      let cur = shuffle(rng, slotsArr);
+      let curCost = evaluate(cur);
+      let improved = true;
+      while (improved) {
+        improved = false;
+        for (let a = 0; a < n; a++) {
+          for (let b = a + 1; b < n; b++) {
+            if (cur[a] === cur[b]) continue;
+            const next = [...cur];
+            [next[a], next[b]] = [next[b], next[a]];
+            const c = evaluate(next);
+            if (c < curCost) {
+              cur = next;
+              curCost = c;
+              improved = true;
+            }
+          }
+        }
+      }
+      if (curCost < bestCost) {
+        bestCost = curCost;
+        best = cur;
+      }
+    }
+    return best;
+  }
+
+  // ---- 4. วันธรรมดา: บ่าย/ดึก เฉลี่ยยอดด้วย simulated annealing ----
+  {
+    const masks = buildMasks();
+    for (const d of mDays) {
+      if (isOffDay(d, holidays)) {
+        for (const s of ['O', 'I', 'PM', 'N'] as const) {
+          if (!days[d]?.[s]) warnings.push(`${thaiDateLabel(d)} ช่อง ${s} ยังไม่มีคน`);
+        }
+      }
+    }
+    const free: { i: number; date: string; slot: 'PM' | 'N'; bit: number }[] = [];
+    for (const d of mDays) {
+      if (isOffDay(d, holidays)) continue;
+      for (const s of ['PM', 'N'] as const) if (!days[d]?.[s]) free.push({ i: idx.get(d)!, date: d, slot: s, bit: BIT[s] });
+    }
+    let fixedTotal = 0;
+    for (const id of allIds) {
+      const m = masks.get(id)!;
+      for (const i of monthIdx) fixedTotal += popcount(m[i] & COUNTED);
+    }
+    const A = active.length;
+    const T = fixedTotal + free.length;
+    const totalPlus = new Set(takeFromQueue(q.totalExtra, T % A, [isActive]));
+    const NT = mDays.length;
+    const nightPlus = new Set(takeFromQueue(q.nightExtra, NT % A, [isActive]));
+    const target = activeIds.map((id) => Math.floor(T / A) + (totalPlus.has(id) ? 1 : 0));
+    const nTarget = activeIds.map((id) => Math.floor(NT / A) + (nightPlus.has(id) ? 1 : 0));
+    info.push(
+      `เวรรวม ${T} เวร: คนละ ${Math.floor(T / A)}` +
+        (totalPlus.size ? ` (+1: ${[...totalPlus].map(nameOf).join(', ')})` : ''),
+    );
+    info.push(
+      `ดึก ${NT} เวร: คนละ ${Math.floor(NT / A)}` + (nightPlus.size ? ` (+1: ${[...nightPlus].map(nameOf).join(', ')})` : ''),
+    );
+
+    const pm = activeIds.map((id) => [...masks.get(id)!]);
+    const pctx = activeIds.map((id) => ctx.get(id)!);
+    const pcost = (p: number) => {
+      const m = pm[p];
+      let tot = 0;
+      let nights = 0;
+      for (const i of monthIdx) {
+        tot += popcount(m[i] & COUNTED);
+        if (m[i] & BIT.N) nights++;
+      }
+      const dt = tot - target[p];
+      const dn = nights - nTarget[p];
+      return maskCost(m, pctx[p]) + 1000 * dt * dt + 500 * dn * dn;
+    };
+
+    const iters = opts.iterations ?? 60_000;
+    let bestAssign: number[] = [];
+    let bestTotal = Infinity;
+    const initial = pm.map((m) => [...m]);
+    for (let restart = 0; restart < 3 && free.length && A; restart++) {
+      for (let p = 0; p < A; p++) pm[p] = [...initial[p]];
+      const assign = new Array<number>(free.length).fill(-1);
+      // greedy เริ่มต้น
+      for (const f of shuffle(rng, free.map((_, k) => k))) {
+        let bp = 0;
+        let bc = Infinity;
+        for (let p = 0; p < A; p++) {
+          const before = pcost(p);
+          pm[p][free[f].i] |= free[f].bit;
+          const c = pcost(p) - before + rng() * 5;
+          pm[p][free[f].i] &= ~free[f].bit;
+          if (c < bc) {
+            bc = c;
+            bp = p;
+          }
+        }
+        assign[f] = bp;
+        pm[bp][free[f].i] |= free[f].bit;
+      }
+      const costs = pm.map((_, p) => pcost(p));
+      let total = costs.reduce((a, b) => a + b, 0);
+      const T0 = 400;
+      const T1 = 0.5;
+      for (let it = 0; it < iters; it++) {
+        const temp = T0 * Math.pow(T1 / T0, it / iters);
+        if (rng() < 0.6 || free.length < 2) {
+          const f = randInt(rng, free.length);
+          const p1 = assign[f];
+          const p2 = randInt(rng, A);
+          if (p2 === p1) continue;
+          const { i, bit } = free[f];
+          pm[p1][i] &= ~bit;
+          pm[p2][i] |= bit;
+          const c1 = pcost(p1);
+          const c2 = pcost(p2);
+          const delta = c1 + c2 - costs[p1] - costs[p2];
+          if (delta <= 0 || rng() < Math.exp(-delta / temp)) {
+            costs[p1] = c1;
+            costs[p2] = c2;
+            total += delta;
+            assign[f] = p2;
+          } else {
+            pm[p2][i] &= ~bit;
+            pm[p1][i] |= bit;
+          }
+        } else {
+          const f1 = randInt(rng, free.length);
+          const f2 = randInt(rng, free.length);
+          const p1 = assign[f1];
+          const p2 = assign[f2];
+          if (p1 === p2) continue;
+          const a = free[f1];
+          const b = free[f2];
+          pm[p1][a.i] &= ~a.bit;
+          pm[p2][b.i] &= ~b.bit;
+          pm[p1][b.i] |= b.bit;
+          pm[p2][a.i] |= a.bit;
+          const c1 = pcost(p1);
+          const c2 = pcost(p2);
+          const delta = c1 + c2 - costs[p1] - costs[p2];
+          if (delta <= 0 || rng() < Math.exp(-delta / temp)) {
+            costs[p1] = c1;
+            costs[p2] = c2;
+            total += delta;
+            assign[f1] = p2;
+            assign[f2] = p1;
+          } else {
+            pm[p1][b.i] &= ~b.bit;
+            pm[p2][a.i] &= ~a.bit;
+            pm[p1][a.i] |= a.bit;
+            pm[p2][b.i] |= b.bit;
+          }
+        }
+      }
+      if (total < bestTotal) {
+        bestTotal = total;
+        bestAssign = [...assign];
+      }
+    }
+    free.forEach((f, k) => {
+      const p = bestAssign[k];
+      if (p === undefined || p < 0) return;
+      days[f.date] = { ...(days[f.date] ?? {}), [f.slot]: activeIds[p] };
+    });
+  }
+
+  // ---- 5. SMC ตามคิว (ไม่ใช่คนเดียวกับบ่าย/ดึกของวันนั้น) ----
+  const smcDays = old?.smcDays ?? defaultSmcDays(month, state.holidays);
+  {
+    const masks = buildMasks();
+    for (const d of smcDays) {
+      const i = idx.get(d)!;
+      const strict = (id: string) => {
+        if (!isActive(id) || isOff(id, d)) return false;
+        const m = masks.get(id)!;
+        return !m[i] && !(m[i - 1] & BIT.N);
+      };
+      const relaxed = (id: string) => isActive(id) && !isOff(id, d) && !(masks.get(id)![i] & (BIT.PM | BIT.N));
+      const [id] = takeFromQueue(q.smc, 1, [strict, relaxed]);
+      if (!id) {
+        warnings.push(`หาคนอยู่ SMC ${thaiDateLabel(d)} ไม่ได้`);
+        continue;
+      }
+      days[d] = { ...(days[d] ?? {}), SMC: id };
+      masks.get(id)![i] |= BIT.SMC;
+    }
+  }
+
+  for (const issue of findIssues(days, state.people, requests, month, state.holidays)) {
+    if (issue.level === 'error') warnings.push(`${thaiDateLabel(issue.date)} ${issue.message}`);
+  }
+
+  return {
+    days,
+    queues: q,
+    record: {
+      generatedAt: new Date().toISOString(),
+      queuesBefore,
+      queuesAfter: clone(q),
+      blocks: records.sort((a, b) => a.start.localeCompare(b.start)),
+      smcDays,
+      weekendRoles,
+      info,
+      warnings,
+    },
+  };
+}
+
+/** ประวัติตำแหน่ง A/B/C ของเสาร์–อาทิตย์ เรียงจากเดือนล่าสุด */
+export function roleHistory(state: AppState, before: string): Record<string, WeekendRole[]> {
+  const out: Record<string, WeekendRole[]> = {};
+  const months = Object.keys(state.months)
+    .filter((m) => m < before)
+    .sort()
+    .reverse();
+  for (const m of months) {
+    for (const [id, roles] of Object.entries(state.months[m].weekendRoles ?? {})) {
+      (out[id] ??= []).push(...roles);
+    }
+  }
+  return out;
+}
+
+function factorial(n: number): number {
+  return n <= 1 ? 1 : n * factorial(n - 1);
+}
