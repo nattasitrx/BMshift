@@ -8,8 +8,8 @@ import { SLOT_LABEL, type AppState, type Slot } from '../engine/types';
 import type { Ctx } from './App';
 import { Chip, getMe } from './common';
 import { SlipView } from './SlipView';
+import { personHistory, weekendRoleLabel, weekendRoleLoad } from '../engine/usage';
 
-const ROLE_LOAD: Record<string, string> = { A: 'A (3 เวร)', B: 'B (3 เวร)', C: 'C (4 เวร)' };
 
 export function SummaryView(ctx: Ctx) {
   const [view, setView] = useState<'person' | 'slip' | 'pattern'>('person');
@@ -76,7 +76,7 @@ function PersonSummary({ state, requests, month }: Ctx) {
           </div>
         )}
         <p className="small">
-          เสาร์–อาทิตย์: {row?.weekendRoles.length ? row.weekendRoles.map((r) => ROLE_LOAD[r]).join(', ') : 'ไม่มี'}
+          เสาร์–อาทิตย์: {row?.weekendRoles.length ? row.weekendRoles.map((r) => weekendRoleLabel(state, r, 'long')).join(', ') : 'ไม่มี'}
           {festivals.map((f) => (
             <span key={f.start}> · {f.kind === 'newyear' ? 'ปีใหม่' : 'สงกรานต์'}</span>
           ))}
@@ -172,7 +172,7 @@ function patternRows(state: AppState, months: string[]): PatternRow[] {
       for (const role of roles) {
         if (role === 'A' || role === 'B' || role === 'C') r[role]++;
         r.weekends++;
-        r.last = `${role} (${thaiMonthLabel(m)})`;
+        r.last = `${weekendRoleLabel(state, role)} (${thaiMonthLabel(m)})`;
       }
     }
     for (const id of rec.noWeekend ?? []) get(id).noWeekend++;
@@ -195,10 +195,12 @@ function PatternSummary({ state, month }: { state: AppState; month: string }) {
   const months = range === 'all' ? all : all.filter((m) => m > shiftMonth(month, -12));
   const rows = patternRows(state, months);
   const people = new Map(state.people.map((p) => [p.id, p]));
+  const [open, setOpen] = useState<string | null>(null);
+  const role = (r: 'A' | 'B' | 'C') => ({ key: r, label: weekendRoleLabel(state, r), hint: `${weekendRoleLoad(state, r)} เวร` });
   const cols: { key: keyof PatternRow; label: string; hint?: string }[] = [
-    { key: 'A', label: 'A', hint: '3 เวร' },
-    { key: 'B', label: 'B', hint: '3 เวร' },
-    { key: 'C', label: 'C', hint: '4 เวร' },
+    role('A'),
+    role('B'),
+    role('C'),
     { key: 'weekends', label: 'ส-อา รวม' },
     { key: 'noWeekend', label: 'ไม่อยู่ ส-อา' },
     { key: 'twoWeekend', label: '2 รอบ' },
@@ -227,7 +229,8 @@ function PatternSummary({ state, month }: { state: AppState; month: string }) {
       </div>
       <p className="muted small">
         นับถึง{thaiMonthLabel(month)} ({months.length} เดือนที่จัดแล้ว) · <span className="hi">ตัวหนาแดง</span> = มากสุด,{' '}
-        <span className="lo">เขียว</span> = น้อยสุด ในคอลัมน์ · ตำแหน่ง C หนักสุด ควรกระจายให้เท่ากัน
+        <span className="lo">เขียว</span> = น้อยสุด ในคอลัมน์ · {weekendRoleLabel(state, 'C')} หนักสุด (4 เวร) ควรกระจายให้เท่ากัน ·
+        แตะชื่อเพื่อดูว่าอยู่อะไร เดือนไหน
       </p>
       <div className="table-wrap">
         <table className="summary pattern">
@@ -244,10 +247,10 @@ function PatternSummary({ state, month }: { state: AppState; month: string }) {
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
-              <tr key={r.id}>
-                <td>
-                  <Chip person={people.get(r.id)} small />
+            {rows.map((r) => [
+              <tr key={r.id} className="clickable" onClick={() => setOpen(open === r.id ? null : r.id)}>
+                <td className="nowrap">
+                  <span className="caret">{open === r.id ? '▾' : '▸'}</span> <Chip person={people.get(r.id)} small />
                 </td>
                 {cols.map((c) => {
                   const v = Number(r[c.key]) || 0;
@@ -260,14 +263,54 @@ function PatternSummary({ state, month }: { state: AppState; month: string }) {
                   );
                 })}
                 <td className="nowrap small">{r.last || '–'}</td>
-              </tr>
-            ))}
+              </tr>,
+              open === r.id && (
+                <tr key={`${r.id}-detail`} className="detail-row">
+                  <td colSpan={cols.length + 2}>
+                    <HistoryList state={state} id={r.id} months={months} />
+                  </td>
+                </tr>
+              ),
+            ])}
           </tbody>
         </table>
       </div>
       <p className="muted small">
-        เดือนที่นำเข้าจากรูป (พ.ย. 69) มีเฉพาะตำแหน่ง A/B/C และเวรเสริม · "ไม่อยู่ ส-อา" และ "2 รอบ" เริ่มนับจากเดือนที่จัดด้วยระบบรุ่นนี้
+        เดือนที่นำเข้าจากรูป (พ.ย. 69) มีเฉพาะตำแหน่งเสาร์–อาทิตย์และเวรเสริม · "ไม่อยู่ ส-อา" และ "2 รอบ" เริ่มนับจากเดือนที่จัดด้วยระบบรุ่นนี้
       </p>
     </section>
+  );
+}
+
+const KIND_ICON: Record<string, string> = {
+  weekend: '📅',
+  extra: '✳️',
+  adjacent: '🏖️',
+  midweek: '📌',
+  newyear: '🎆',
+  songkran: '💦',
+  noWeekend: '⏸️',
+  twoWeekend: '➕',
+};
+
+function HistoryList({ state, id, months }: { state: AppState; id: string; months: string[] }) {
+  const items = personHistory(state, id, [...months].sort());
+  if (!items.length) return <p className="muted small">ยังไม่มีประวัติในช่วงนี้</p>;
+  let last = '';
+  return (
+    <ul className="history">
+      {items.map((e, k) => {
+        const head = e.month !== last ? thaiMonthLabel(e.month) : '';
+        last = e.month;
+        return (
+          <li key={k}>
+            <span className="h-month">{head}</span>
+            <span>
+              {KIND_ICON[e.kind]} {e.text}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
   );
 }

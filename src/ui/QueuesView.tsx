@@ -4,6 +4,7 @@ import { normalizeQueues, QUEUE_KEYS } from '../engine/generate';
 import { QUEUE_INFO, type Queues } from '../engine/types';
 import type { Ctx } from './App';
 import { Chip, clone } from './common';
+import { queueLastUse } from '../engine/usage';
 
 export function QueuesView({ state, commit }: Ctx) {
   const ids = state.people.map((p) => p.id);
@@ -16,6 +17,7 @@ export function QueuesView({ state, commit }: Ctx) {
 
   const people = new Map(state.people.map((p) => [p.id, p]));
   const latest = Object.keys(state.months).sort().pop();
+  const used = queueLastUse(state);
 
   const move = (key: keyof Queues, i: number, d: -1 | 1) => {
     const list = [...draft[key]];
@@ -35,7 +37,7 @@ export function QueuesView({ state, commit }: Ctx) {
   return (
     <div>
       <p className="muted">
-        คนบนสุด = คิวถัดไป · คนที่ถูกใช้แล้วจะย้ายไปท้ายคิวอัตโนมัติ · คนที่ถูกข้าม (เช่น ไม่ว่าง) ยังอยู่หัวคิว
+        คนบนสุด = คิวถัดไป · คนที่ถูกใช้แล้วจะย้ายไปท้ายคิวอัตโนมัติ (วงเล็บบอกว่าใช้ไปเมื่อไหร่) · คนที่ถูกข้าม (เช่น ไม่ว่าง) ยังอยู่หัวคิว
         {latest && <> · สถานะหลังจัด {thaiMonthLabel(latest)}</>}
       </p>
       <div className="queue-grid">
@@ -51,6 +53,11 @@ export function QueuesView({ state, commit }: Ctx) {
                     <span className="qn">{i + 1}</span>
                     <Chip person={p} small />
                     {!p?.active && <span className="muted small"> (พัก)</span>}
+                    {used[key]?.get(id) && (
+                      <span className={'small ' + (used[key]!.get(id)!.month === latest ? 'used-recent' : 'muted')}>
+                        ({used[key]!.get(id)!.month === latest ? 'เพิ่งใช้' : 'ใช้ล่าสุด'} {used[key]!.get(id)!.text})
+                      </span>
+                    )}
                     <span className="spacer" />
                     <button className="btn-ghost" onClick={() => move(key, i, -1)} aria-label="ขึ้น">
                       ▲

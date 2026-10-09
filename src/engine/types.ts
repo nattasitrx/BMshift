@@ -140,6 +140,9 @@ export interface MonthRecord {
   /** ใครไม่ต้องอยู่ ส-อา / อยู่ 2 รอบ ในเดือนนี้ (สำหรับหน้าสรุป) */
   noWeekend?: string[];
   twoWeekend?: string[];
+  /** ใครได้ +1 เวรรวม / +1 ดึก ในเดือนนี้ (คิวเวรรวมเกิน/ดึกเกิน) */
+  totalPlus?: string[];
+  nightPlus?: string[];
   /** สรุปว่าระบบตัดสินใจอะไรจากคิว เช่น ใครไม่อยู่ ส-อา */
   info: string[];
   warnings: string[];

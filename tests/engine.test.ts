@@ -7,6 +7,7 @@ import { undoMonth, withHistory } from '../src/engine/history';
 import { changedMonths, describeChange, holidayChange } from '../src/engine/holidayCheck';
 import { firstNameOnly, printName } from '../src/engine/names';
 import { rateFor, slipFor } from '../src/engine/pay';
+import { personHistory, queueLastUse, weekendRoleLabel, weekendRoleLoad } from '../src/engine/usage';
 import { seedState, SEED_HOLIDAYS, SEED_TEMPLATES } from '../src/engine/seed';
 import { findIssues, summarizeMonth } from '../src/engine/summary';
 import { SLOTS, type AppState, type ShiftRequest } from '../src/engine/types';
@@ -440,5 +441,37 @@ describe('วันที่ภาษาไทย', () => {
     expect(thaiDateLabel('2026-11-03')).toBe('อ 3 พ.ย. 69');
     expect(thaiDateLabel('2027-01-01')).toBe('ศ 1 ม.ค. 70');
     expect(thaiDateLabel('2026-12-31')).toBe('พฤ 31 ธ.ค. 69');
+  });
+});
+
+describe('ชื่อแพทเทิร์นและประวัติการใช้คิว', () => {
+  it('A/B/C เป็นชื่อเวรจริง', () => {
+    const s = seedState();
+    expect(weekendRoleLabel(s, 'A')).toBe('บ่าย-เช้าดึก');
+    expect(weekendRoleLabel(s, 'B')).toBe('ดึก-เช้าบ่าย');
+    expect(weekendRoleLabel(s, 'C')).toBe('เช้าบ่าย-เช้าดึก');
+    expect(weekendRoleLabel(s, 'A', 'long')).toBe('ศ บ่าย · ส เช้า+ดึก');
+    expect(weekendRoleLoad(s, 'C')).toBe(4);
+  });
+
+  it('ประวัติรายคนบอกว่าอยู่อะไร เดือนไหน', () => {
+    const s = seedState();
+    const h = personHistory(s, 'pu', ['2026-10', '2026-11']);
+    expect(h.map((e) => e.text)).toEqual([
+      'ส-อา ส 31 ต.ค. 69 – อา 1 พ.ย. 69: ศ ดึก · อา เช้า+บ่าย',
+      'เวรเสริม ส 7 พ.ย. 69 – อา 8 พ.ย. 69',
+      'ส-อา ส 21 พ.ย. 69 – อา 22 พ.ย. 69: ศ ดึก · อา เช้า+บ่าย',
+    ]);
+  });
+
+  it('คิวบอกว่าใครถูกใช้ล่าสุดเมื่อไหร่', () => {
+    const s = seedState();
+    const r = generateMonth(arrangeAll(s), [], '2026-12', { seed: 2, iterations: 5_000 });
+    const t = { ...s, days: r.days, months: { ...s.months, '2026-12': r.record } };
+    const use = queueLastUse(t);
+    const adj = r.record.blocks.find((b) => b.kind === 'adjacent')!;
+    for (const id of Object.values(adj.people)) expect(use.adjacent?.get(id)?.month).toBe('2026-12');
+    expect(use.extra?.get('la')?.month).toBe('2026-11'); // หล้าเสริม 28–29 พ.ย.
+    for (const id of r.record.totalPlus ?? []) expect(use.totalExtra?.get(id)?.month).toBe('2026-12');
   });
 });

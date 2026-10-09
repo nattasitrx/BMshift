@@ -345,6 +345,8 @@ export function generateMonth(
   // ---- 3. เสาร์–อาทิตย์ปกติ ----
   const weekendRoles: Record<string, WeekendRole[]> = doWeekend ? {} : clone(old?.weekendRoles ?? {});
   let noWeekend: string[] = doWeekend ? [] : (old?.noWeekend ?? []);
+  let totalPlusIds: string[] = old?.totalPlus ?? [];
+  let nightPlusIds: string[] = old?.nightPlus ?? [];
   let twoWeekend: string[] = doWeekend ? [] : (old?.twoWeekend ?? []);
   const wkBlocks = blocks.filter((x) => x.kind === 'weekend');
   const wt = state.templates.find((t) => t.kind === 'weekend' && t.days === 2);
@@ -570,6 +572,8 @@ export function generateMonth(
     const totalPlus = new Set(takeFromQueue(q.totalExtra, T % A, [isActive]));
     const NT = mDays.length;
     const nightPlus = new Set(takeFromQueue(q.nightExtra, NT % A, [isActive]));
+    totalPlusIds = [...totalPlus];
+    nightPlusIds = [...nightPlus];
     const target = activeIds.map((id) => Math.floor(T / A) + (totalPlus.has(id) ? 1 : 0));
     const nTarget = activeIds.map((id) => Math.floor(NT / A) + (nightPlus.has(id) ? 1 : 0));
     note(
@@ -731,6 +735,8 @@ export function generateMonth(
       weekendRoles,
       noWeekend,
       twoWeekend,
+      totalPlus: totalPlusIds,
+      nightPlus: nightPlusIds,
       info: flat('info'),
       warnings: [...flat('warnings'), ...checks],
     },

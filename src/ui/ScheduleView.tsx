@@ -12,10 +12,10 @@ import type { Ctx } from './App';
 import { Chip, clone, getMe, Modal, saveMe } from './common';
 import { ACTION_LABEL, formatWhen, GenerateDialog, type MonthAction } from './GenerateDialog';
 import { PrintSheet } from './PrintSheet';
+import { weekendRoleLabel } from '../engine/usage';
 
 type Col = Slot | 'SMC';
 const COLS: Col[] = ['O', 'I', 'S', 'PM', 'N', 'SMC'];
-const ROLE_LOAD: Record<string, string> = { A: 'A (3 เวร)', B: 'B (3 เวร)', C: 'C (4 เวร)' };
 
 export function ScheduleView({ state, commit, requests, month }: Ctx) {
   const [edit, setEdit] = useState<{ date: string; col: Col } | null>(null);
@@ -224,7 +224,7 @@ export function ScheduleView({ state, commit, requests, month }: Ctx) {
                   <td>{r.night}</td>
                   <td>{r.extra}</td>
                   <td>{r.smc}</td>
-                  <td className="nowrap">{r.weekendRoles.map((x) => ROLE_LOAD[x] ?? x).join(', ') || '–'}</td>
+                  <td className="nowrap">{r.weekendRoles.map((x) => weekendRoleLabel(state, x)).join(', ') || '–'}</td>
                 </tr>
               ))}
             </tbody>

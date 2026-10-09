@@ -1197,10 +1197,11 @@ table {
   padding: 2px 6px;
 }
 
+/* 3 × 5 ใบ = 183 × 265 มม. — เผื่อขอบกระดาษที่ Safari/มือถือบังคับ (~12.7 มม.) ยังพอดี A4 แผ่นเดียว */
 .slip-page {
   display: grid;
-  grid-template-columns: repeat(3, 65mm);
-  grid-template-rows: repeat(5, 56mm);
+  grid-template-columns: repeat(3, 61mm);
+  grid-template-rows: repeat(5, 53mm);
   justify-content: center;
   break-after: page;
 }
@@ -1211,7 +1212,7 @@ table {
 
 /* ขนาดใบในหน้าพิมพ์ (บนจอใช้ .slip-screen) */
 .slip-page .slip {
-  height: 56mm;
+  height: 53mm;
   padding: 2mm 2.5mm;
   font-size: 7pt;
 }
@@ -1263,4 +1264,64 @@ table {
 
 .picker.disabled {
   opacity: 0.45;
+}
+
+/* ---------- pattern history ---------- */
+tr.clickable {
+  cursor: pointer;
+}
+
+.caret {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.detail-row td {
+  text-align: left !important;
+  background: var(--bg);
+}
+
+.history {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  font-size: 13px;
+}
+
+.history li {
+  display: flex;
+  gap: 8px;
+  padding: 1px 0;
+}
+
+.h-month {
+  min-width: 7.5em;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.used-recent {
+  color: var(--brand);
+  font-weight: 600;
+}
+
+.queue li {
+  flex-wrap: wrap;
+}
+
+/* ประวัติที่ขยาย: อยู่ในส่วนที่มองเห็นของตารางเสมอ และขึ้นบรรทัดใหม่ได้ */
+.detail-row td {
+  white-space: normal;
+  padding: 4px 8px;
+}
+
+.detail-row .history {
+  position: sticky;
+  left: 8px;
+  max-width: min(640px, calc(100vw - 72px));
+}
+
+.history li {
+  flex-wrap: wrap;
+  white-space: normal;
 }
