@@ -9,7 +9,7 @@ import { describeChange, holidayChange } from '../engine/holidayCheck';
 import { findIssues, summarizeMonth } from '../engine/summary';
 import { SLOT_LABEL, type AppState, type Slot } from '../engine/types';
 import type { Ctx } from './App';
-import { Chip, clone, Modal } from './common';
+import { Chip, clone, getMe, Modal, saveMe } from './common';
 import { ACTION_LABEL, formatWhen, GenerateDialog, type MonthAction } from './GenerateDialog';
 import { PrintSheet } from './PrintSheet';
 
@@ -64,7 +64,15 @@ export function ScheduleView({ state, commit, requests, month }: Ctx) {
   const lastLog = log[log.length - 1];
   const stages = new Set(record?.stages ?? (record ? ['extra', 'weekend', 'rest'] : []));
 
+  const [editor, setEditor] = useState(getMe);
   const setCell = async (date: string, col: Col, id: string | null) => {
+    if (!editor) return;
+    saveMe(editor);
+    const before = state.days[date]?.[col];
+    if ((before ?? null) === id) {
+      setEdit(null);
+      return;
+    }
     const next = clone(state);
     const a = { ...(next.days[date] ?? {}) };
     if (id) a[col] = id;
@@ -75,7 +83,9 @@ export function ScheduleView({ state, commit, requests, month }: Ctx) {
       rec.smcDays = id ? [...new Set([...rec.smcDays, date])].sort() : rec.smcDays.filter((d) => d !== date);
     }
     setEdit(null);
-    await commit(next);
+    const nm = (x?: string | null) => (x ? (people.get(x)?.name ?? x) : 'ว่าง');
+    const by = people.get(editor)?.name ?? editor;
+    await commit(withHistory(state, next, month, by, `แก้ช่อง${SLOT_LABEL[col]} ${thaiDateLabel(date)}: ${nm(before)} → ${nm(id)}`));
   };
 
   const issueDates = new Set(issues.filter((i) => i.level === 'error').map((i) => i.date));
@@ -260,14 +270,28 @@ export function ScheduleView({ state, commit, requests, month }: Ctx) {
 
       {edit && (
         <Modal title={`${thaiDateLabel(edit.date)} · ${SLOT_LABEL[edit.col]}`} onClose={() => setEdit(null)}>
-          <div className="picker">
+          <label className="field editor-field">
+            แก้โดย
+            <select value={editor} onChange={(e) => setEditor(e.target.value)}>
+              <option value="">— เลือกชื่อผู้แก้ —</option>
+              {state.people
+                .filter((p) => p.active)
+                .map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+            </select>
+          </label>
+          {!editor && <p className="small req-off">เลือกชื่อผู้แก้ก่อน ระบบจะบันทึกไว้ในประวัติ</p>}
+          <div className={'picker' + (editor ? '' : ' disabled')}>
             {state.people
               .filter((p) => p.active)
               .map((p) => {
                 const isOff = (reqIdx.off(p.id, edit.date) & BIT[edit.col]) !== 0;
                 const busyToday = COLS.filter((c) => c !== edit.col && state.days[edit.date]?.[c] === p.id);
                 return (
-                  <button key={p.id} className="pick" onClick={() => setCell(edit.date, edit.col, p.id)}>
+                  <button key={p.id} className="pick" disabled={!editor} onClick={() => setCell(edit.date, edit.col, p.id)}>
                     <Chip person={p} />
                     {isOff && <span className="req-off"> ไม่ว่าง</span>}
                     {busyToday.length > 0 && (
@@ -276,7 +300,7 @@ export function ScheduleView({ state, commit, requests, month }: Ctx) {
                   </button>
                 );
               })}
-            <button className="pick pick-clear" onClick={() => setCell(edit.date, edit.col, null)}>
+            <button className="pick pick-clear" disabled={!editor} onClick={() => setCell(edit.date, edit.col, null)}>
               — ว่าง —
             </button>
           </div>

@@ -145,9 +145,21 @@ export interface MonthRecord {
   warnings: string[];
 }
 
+export interface PayRate {
+  /** เริ่มใช้ตั้งแต่เดือนนี้ 'YYYY-MM' */
+  from: string;
+  /** บาทต่อเวร */
+  amount: number;
+}
+
 export interface Settings {
   /** คนที่อยู่ปีใหม่/สงกรานต์ในเดือนนั้น นับว่าอยู่เสาร์–อาทิตย์แล้ว */
   festivalCountsAsWeekend: boolean;
+  /** ค่าเวร (ใช้อัตราล่าสุดที่เริ่มก่อนหรือในเดือนนั้น) */
+  payRates?: PayRate[];
+  /** ใบเวรน้อยนับเวรเสริม / SMC เป็นค่าเวรด้วยไหม */
+  payCountExtra?: boolean;
+  payCountSmc?: boolean;
   /** บังคับแพทเทิร์นของช่วงวันหยุด key = วันแรกของช่วง */
   templateOverride: Record<string, string>;
 }

@@ -56,6 +56,7 @@ export function SettingsView({ state, commit }: Ctx) {
       <PeopleSection d={d} update={update} />
       <HolidaySection d={d} update={update} />
       <TemplateSection d={d} update={update} />
+      <PaySection d={d} update={update} />
 
       <section className="card">
         <h3>ตัวเลือก</h3>
@@ -321,6 +322,80 @@ function HolidaySection({ d, update }: SectionProps) {
           </button>
         </Modal>
       )}
+    </section>
+  );
+}
+
+function PaySection({ d, update }: SectionProps) {
+  const rates = [...(d.settings.payRates ?? [])].sort((a, b) => a.from.localeCompare(b.from));
+  const [from, setFrom] = useState('');
+  const [amount, setAmount] = useState('');
+  return (
+    <section className="card">
+      <h3>ค่าเวร (ใบเวรน้อย)</h3>
+      <ul className="hol-list">
+        {rates.map((r, i) => (
+          <li key={r.from}>
+            <span className="grow">
+              {i === 0 ? 'เริ่มต้น' : `ตั้งแต่ ${thaiMonthLabel(r.from)}`}: <b>{r.amount.toLocaleString('th-TH')}</b> บาท/เวร
+            </span>
+            {rates.length > 1 && (
+              <button
+                className="btn-ghost"
+                aria-label="ลบ"
+                onClick={() => update((x) => (x.settings.payRates = (x.settings.payRates ?? []).filter((y) => y.from !== r.from)))}
+              >
+                ✕
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
+      <form
+        className="row wrap"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const n = Number(amount);
+          if (!from || !(n > 0)) return;
+          update((x) => {
+            x.settings.payRates = [...(x.settings.payRates ?? []).filter((y) => y.from !== from), { from, amount: n }];
+          });
+          setFrom('');
+          setAmount('');
+        }}
+      >
+        <input type="month" value={from} onChange={(e) => setFrom(e.target.value)} aria-label="เริ่มใช้เดือน" />
+        <input
+          type="number"
+          inputMode="numeric"
+          min={1}
+          placeholder="บาท/เวร"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          style={{ width: '7em' }}
+        />
+        <button className="btn" type="submit">
+          + เปลี่ยนค่าเวร
+        </button>
+      </form>
+      <p className="muted small">ค่าเวรใหม่มีผลตั้งแต่เดือนที่เลือก เดือนก่อนหน้ายังใช้อัตราเดิม</p>
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={d.settings.payCountExtra !== false}
+          onChange={(e) => update((x) => (x.settings.payCountExtra = e.target.checked))}
+        />
+        นับเวรเสริมเป็นค่าเวร
+      </label>
+      <br />
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={!!d.settings.payCountSmc}
+          onChange={(e) => update((x) => (x.settings.payCountSmc = e.target.checked))}
+        />
+        นับ SMC เป็นค่าเวร
+      </label>
     </section>
   );
 }

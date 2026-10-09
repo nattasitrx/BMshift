@@ -6,6 +6,7 @@ import { clearMonth, defaultSmcDays, generateBest, generateMonth, takeFromQueue 
 import { undoMonth, withHistory } from '../src/engine/history';
 import { changedMonths, describeChange, holidayChange } from '../src/engine/holidayCheck';
 import { firstNameOnly, printName } from '../src/engine/names';
+import { rateFor, slipFor } from '../src/engine/pay';
 import { seedState, SEED_HOLIDAYS, SEED_TEMPLATES } from '../src/engine/seed';
 import { findIssues, summarizeMonth } from '../src/engine/summary';
 import { SLOTS, type AppState, type ShiftRequest } from '../src/engine/types';
@@ -406,5 +407,30 @@ describe('แจ้งวันแยกตามเวร', () => {
     const days = { '2026-12-15': { PM: 'mod', N: 'pu' } };
     const issues = findIssues(days, seedState().people, [req('2026-12-15', 'mod', 'off', 'N'), req('2026-12-15', 'pu', 'off', 'N')], '2026-12');
     expect(issues.map((i) => i.personId)).toEqual(['pu']);
+  });
+});
+
+describe('ใบเวรน้อย / ค่าเวร', () => {
+  it('นับเวรของเดือน × ค่าเวร (เสริมนับ SMC ไม่นับ เป็นค่าเริ่มต้น)', () => {
+    const s = seedState();
+    // พ.ย. 69: ปู = 1 OPD+บ่าย, 7 เสริม+ดึก, 20 ดึก, 22 OPD+บ่าย, 26 ดึก
+    const slip = slipFor(s, '2026-11', 'pu');
+    expect(slip.rows.map((r) => r.date.slice(8))).toEqual(['01', '07', '20', '22', '26']);
+    expect(slip.count).toBe(8);
+    expect(slip.rate).toBe(820);
+    expect(slip.total).toBe(6560);
+    // อีฟมี SMC วันที่ 2 — ไม่นับเงินแต่แสดงในใบ
+    const eve = slipFor(s, '2026-11', 'eve');
+    expect(eve.rows.find((r) => r.date === '2026-11-02')).toMatchObject({ slots: ['SMC'], count: 0 });
+    const withSmc = slipFor({ ...s, settings: { ...s.settings, payCountSmc: true } }, '2026-11', 'eve');
+    expect(withSmc.count).toBe(eve.count + 1);
+  });
+
+  it('ค่าเวรเปลี่ยนตามเดือนที่เริ่มใช้', () => {
+    const s = seedState();
+    const t = { ...s, settings: { ...s.settings, payRates: [{ from: '2000-01', amount: 820 }, { from: '2027-01', amount: 900 }] } };
+    expect(rateFor(t, '2026-12')).toBe(820);
+    expect(rateFor(t, '2027-01')).toBe(900);
+    expect(rateFor(t, '2027-06')).toBe(900);
   });
 });

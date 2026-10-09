@@ -227,7 +227,7 @@ export function seedState(): AppState {
     queues: SEED_QUEUES,
     holidays: SEED_HOLIDAYS,
     templates: SEED_TEMPLATES,
-    settings: { festivalCountsAsWeekend: false, templateOverride: {} },
+    settings: { festivalCountsAsWeekend: false, templateOverride: {}, payRates: [{ from: '2000-01', amount: 820 }] },
     days,
     festivals: [],
     festivalGroup: defaultFestivalGroup(SEED_PEOPLE.map((p) => p.id), SEED_QUEUES.festival),

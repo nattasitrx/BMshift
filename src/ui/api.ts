@@ -1,3 +1,4 @@
+import { DEFAULT_PAY_RATES } from '../engine/pay';
 import { defaultFestivalGroup, seedState } from '../engine/seed';
 import type { AppState, ShiftRequest } from '../engine/types';
 
@@ -46,6 +47,7 @@ function migrate(s: AppState): AppState {
     ...s,
     festivals: s.festivals ?? [],
     festivalGroup: s.festivalGroup ?? defaultFestivalGroup(s.people.map((p) => p.id), s.queues?.festival),
+    settings: { ...s.settings, payRates: s.settings.payRates ?? DEFAULT_PAY_RATES },
   };
 }
 

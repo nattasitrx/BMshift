@@ -7,22 +7,28 @@ import { summarizeMonth } from '../engine/summary';
 import { SLOT_LABEL, type AppState, type Slot } from '../engine/types';
 import type { Ctx } from './App';
 import { Chip, getMe } from './common';
+import { SlipView } from './SlipView';
 
 const ROLE_LOAD: Record<string, string> = { A: 'A (3 เวร)', B: 'B (3 เวร)', C: 'C (4 เวร)' };
 
 export function SummaryView(ctx: Ctx) {
-  const [view, setView] = useState<'person' | 'pattern'>('person');
+  const [view, setView] = useState<'person' | 'slip' | 'pattern'>('person');
   return (
     <div>
-      <div className="seg">
+      <div className="seg no-print">
         <button className={view === 'person' ? 'seg-on' : ''} onClick={() => setView('person')}>
           👤 รายคน
         </button>
+        <button className={view === 'slip' ? 'seg-on' : ''} onClick={() => setView('slip')}>
+          🧾 ใบเวรน้อย
+        </button>
         <button className={view === 'pattern' ? 'seg-on' : ''} onClick={() => setView('pattern')}>
-          🔁 แพทเทิร์นสะสม
+          🔁 แพทเทิร์น
         </button>
       </div>
-      {view === 'person' ? <PersonSummary {...ctx} /> : <PatternSummary state={ctx.state} month={ctx.month} />}
+      {view === 'person' && <PersonSummary {...ctx} />}
+      {view === 'slip' && <SlipView {...ctx} />}
+      {view === 'pattern' && <PatternSummary state={ctx.state} month={ctx.month} />}
     </div>
   );
 }
