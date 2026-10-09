@@ -841,7 +841,7 @@ table {
 }
 
 @page {
-  size: A4 landscape;
+  size: A4 portrait;
   margin: 7mm;
 }
 
@@ -872,7 +872,7 @@ table {
 
 .print-sheet {
   color: #000;
-  font-size: 9pt;
+  font-size: 10pt;
 }
 
 .print-sheet h1 {
@@ -900,14 +900,6 @@ table {
 .print-sheet th {
   font-weight: 700;
   background: #e8e8e8;
-}
-
-.print-sheet .c-date {
-  width: 24mm;
-}
-
-.print-sheet .c-blank {
-  width: 12mm;
 }
 
 .print-sheet td.date {
@@ -943,7 +935,42 @@ table {
   break-inside: avoid;
 }
 
-/* ใช้พื้นที่ที่เหลือให้แถวสูงขึ้น เขียนชื่อเจ้าพนักงานด้วยมือได้สะดวก (31 วันยังพอดีหน้าเดียว) */
+/* แนวตั้งมีที่เหลือ ให้แถวสูงขึ้นอ่านง่าย (31 วันยังพอดีหน้าเดียว) */
 .print-sheet tbody td {
-  height: 5.5mm;
+  height: 7.4mm;
+}
+
+/* วันที่มี SMC: แบ่งครึ่งช่องบ่าย ซ้าย = บ่าย, ขวา = SMC */
+.print-sheet td.split {
+  padding: 0;
+}
+
+.print-sheet td.split > div {
+  display: flex;
+  height: 100%;
+  min-height: 7.4mm;
+}
+
+.print-sheet td.split span {
+  flex: 1 1 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  overflow: hidden;
+  white-space: nowrap;
+  padding: 0 2px;
+}
+
+.print-sheet td.split span + span {
+  border-left: 0.6pt dashed #000;
+}
+
+.print-sheet td.split small {
+  font-size: 6.5pt;
+  font-weight: 700;
+  border: 0.5pt solid #000;
+  border-radius: 2px;
+  padding: 0 2px;
+  line-height: 1.2;
 }

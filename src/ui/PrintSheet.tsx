@@ -2,16 +2,15 @@ import { holidayMap, isOffDay } from '../engine/blocks';
 import { daysInMonth, thaiDayShort, thaiMonthLabel } from '../engine/dates';
 import type { AppState } from '../engine/types';
 
-// ตารางสำหรับพิมพ์ฉบับจริง: ใช้ชื่อจริง ไม่มีข้อมูลไม่ว่าง/ขออยู่
-// และมีช่องว่างให้เจ้าพนักงานเขียนชื่อเอง (เช้า 4 ช่อง, บ่าย/ดึก/SMC อย่างละ 1 ช่อง)
-const STAFF_MORNING = 4;
+// ตารางสำหรับพิมพ์ฉบับจริง (A4 แนวตั้ง หน้าเดียว): ใช้ชื่อจริง ไม่มีข้อมูลไม่ว่าง/ขออยู่
+// SMC ไม่มีคอลัมน์แยก — วันที่มี SMC จะแบ่งครึ่งช่องบ่าย (ซ้าย = บ่าย, ขวา = SMC)
 
-// ขนาดคอลัมน์ (มม.) บน A4 แนวนอน ขอบ 7 มม. — ใช้คำนวณย่อชื่อยาวให้อยู่บรรทัดเดียว ทั้งเดือนจะได้พอดีหน้าเดียว
-const PAGE_MM = 297 - 14;
+// ขนาดคอลัมน์ (มม.) บน A4 แนวตั้ง ขอบ 7 มม. — ใช้ย่อชื่อยาวให้อยู่บรรทัดเดียว
+const PAGE_MM = 210 - 14;
 const DATE_MM = 24;
-const BLANK_MM = 12;
-const NAME_MM = (PAGE_MM - DATE_MM - (STAFF_MORNING + 3) * BLANK_MM) / 6;
-const BASE_PT = 9;
+const PM_MM = 52;
+const NAME_MM = (PAGE_MM - DATE_MM - PM_MM) / 4;
+const BASE_PT = 10;
 const MIN_PT = 6.5;
 
 let canvas: CanvasRenderingContext2D | null | undefined;
@@ -33,61 +32,47 @@ export function PrintSheet({ state, month }: { state: AppState; month: string })
     const p = people.get(id);
     return p ? p.fullName?.trim() || p.name : '';
   };
+  const sized = (text: string, mm: number) => (text ? { fontSize: `${fitPt(text, mm)}pt` } : undefined);
   const cell = (id: string | undefined, na: boolean) => {
     const text = name(id);
     return (
-      <td className={na ? 'na' : ''} style={text ? { fontSize: `${fitPt(text, NAME_MM)}pt` } : undefined}>
+      <td className={na ? 'na' : ''} style={sized(text, NAME_MM)}>
         {text}
       </td>
     );
   };
-  const blanks = (n: number, na: boolean) =>
-    Array.from({ length: n }, (_, k) => <td key={k} className={na ? 'blank na' : 'blank'} />);
 
   return (
     <div className="print-only print-sheet">
       <h1>ตารางเวรเภสัชกร ประจำเดือน{thaiMonthLabel(month)}</h1>
       <table>
         <colgroup>
-          <col className="c-date" />
-          <col className="c-name" />
-          <col className="c-name" />
-          {Array.from({ length: STAFF_MORNING }, (_, k) => (
-            <col key={k} className="c-blank" />
-          ))}
-          <col className="c-name" />
-          <col className="c-name" />
-          <col className="c-blank" />
-          <col className="c-name" />
-          <col className="c-blank" />
-          <col className="c-name" />
-          <col className="c-blank" />
+          <col style={{ width: `${DATE_MM}mm` }} />
+          <col />
+          <col />
+          <col />
+          <col style={{ width: `${PM_MM}mm` }} />
+          <col />
         </colgroup>
         <thead>
           <tr>
             <th rowSpan={2}>วันที่</th>
-            <th colSpan={2 + STAFF_MORNING}>เวรเช้า</th>
+            <th colSpan={2}>เวรเช้า</th>
             <th rowSpan={2}>เสริม</th>
-            <th colSpan={2}>บ่าย</th>
-            <th colSpan={2}>ดึก</th>
-            <th colSpan={2}>SMC</th>
+            <th rowSpan={2}>บ่าย</th>
+            <th rowSpan={2}>ดึก</th>
           </tr>
           <tr>
             <th>OPD</th>
             <th>IPD</th>
-            <th colSpan={STAFF_MORNING}>เจ้าพนักงาน</th>
-            <th>เภสัชกร</th>
-            <th>จพ.</th>
-            <th>เภสัชกร</th>
-            <th>จพ.</th>
-            <th>เภสัชกร</th>
-            <th>จพ.</th>
           </tr>
         </thead>
         <tbody>
           {daysInMonth(month).map((d) => {
             const a = state.days[d] ?? {};
             const off = isOffDay(d, hol);
+            const pm = name(a.PM);
+            const smc = name(a.SMC);
             return (
               <tr key={d} className={off ? 'off' : ''}>
                 <td className="date">
@@ -100,14 +85,20 @@ export function PrintSheet({ state, month }: { state: AppState; month: string })
                 </td>
                 {cell(a.O, !off)}
                 {cell(a.I, !off)}
-                {blanks(STAFF_MORNING, !off)}
                 {cell(a.S, !off)}
-                {cell(a.PM, false)}
-                {blanks(1, false)}
+                {smc ? (
+                  <td className="split">
+                    <div>
+                      <span style={sized(pm, PM_MM / 2)}>{pm}</span>
+                      <span style={sized(smc, PM_MM / 2 - 7)}>
+                        <small>SMC</small> {smc}
+                      </span>
+                    </div>
+                  </td>
+                ) : (
+                  <td style={sized(pm, PM_MM)}>{pm}</td>
+                )}
                 {cell(a.N, false)}
-                {blanks(1, false)}
-                {cell(a.SMC, !a.SMC)}
-                {blanks(1, !a.SMC)}
               </tr>
             );
           })}
