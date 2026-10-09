@@ -32,12 +32,17 @@ export async function loadState(): Promise<{ mode: Mode; state: AppState; etag: 
     const res = await fetch('/api/state');
     if (res.ok && res.headers.get('content-type')?.includes('json')) {
       const body = (await res.json()) as { state: AppState | null; etag: string | null };
-      return { mode: 'remote', state: body.state ?? seedState(), etag: body.etag };
+      return { mode: 'remote', state: migrate(body.state ?? seedState()), etag: body.etag };
     }
   } catch {
     // fall through to local mode
   }
-  return { mode: 'local', state: lsGet(LS_STATE, seedState()), etag: null };
+  return { mode: 'local', state: migrate(lsGet(LS_STATE, seedState())), etag: null };
+}
+
+/** เติมฟิลด์ใหม่ให้ข้อมูลที่บันทึกไว้ก่อนอัปเดต */
+function migrate(s: AppState): AppState {
+  return { ...s, festivals: s.festivals ?? [] };
 }
 
 export async function saveState(mode: Mode, state: AppState, etag: string | null): Promise<string | null> {

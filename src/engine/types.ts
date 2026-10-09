@@ -98,6 +98,14 @@ export interface BlockRecord {
   extraId?: string;
 }
 
+/** ปีใหม่/สงกรานต์ จัดแยกล่วงหน้า แล้วตอนจัดรายเดือนจะนำมาหักออกจากยอดเวร */
+export interface FestivalRecord extends BlockRecord {
+  kind: 'newyear' | 'songkran';
+  arrangedAt: string;
+  /** คิวเทศกาลก่อนจัดครั้งนี้ (ใช้ตอนกดจัดใหม่) */
+  queueBefore: string[];
+}
+
 export type WeekendRole = 'A' | 'B' | 'C';
 
 export interface MonthRecord {
@@ -127,5 +135,6 @@ export interface AppState {
   templates: Template[];
   settings: Settings;
   months: Record<string, MonthRecord>;
+  festivals: FestivalRecord[];
   days: Record<string, DayAssign>;
 }

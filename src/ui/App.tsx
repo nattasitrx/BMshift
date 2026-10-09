@@ -2,15 +2,17 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { shiftMonth, thaiMonthLabel, toISO } from '../engine/dates';
 import type { AppState, ShiftRequest } from '../engine/types';
 import { ConflictError, listRequests, loadState, saveState, type Mode } from './api';
+import { FestivalView } from './FestivalView';
 import { QueuesView } from './QueuesView';
 import { RequestsView } from './RequestsView';
 import { ScheduleView } from './ScheduleView';
 import { SettingsView } from './SettingsView';
 
-type Tab = 'schedule' | 'requests' | 'queues' | 'settings';
+type Tab = 'schedule' | 'requests' | 'festival' | 'queues' | 'settings';
 const TABS: { key: Tab; label: string; icon: string }[] = [
   { key: 'schedule', label: 'ตารางเวร', icon: '📅' },
   { key: 'requests', label: 'แจ้งวัน', icon: '✋' },
+  { key: 'festival', label: 'เทศกาล', icon: '🎉' },
   { key: 'queues', label: 'คิว', icon: '🔁' },
   { key: 'settings', label: 'ตั้งค่า', icon: '⚙️' },
 ];
@@ -113,6 +115,7 @@ export function App() {
       <main className="content">
         {tab === 'schedule' && <ScheduleView {...ctx} />}
         {tab === 'requests' && <RequestsView {...ctx} />}
+        {tab === 'festival' && <FestivalView {...ctx} />}
         {tab === 'queues' && <QueuesView {...ctx} />}
         {tab === 'settings' && <SettingsView {...ctx} />}
       </main>

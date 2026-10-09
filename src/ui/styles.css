@@ -719,3 +719,27 @@ table {
     print-color-adjust: exact;
   }
 }
+
+/* ---------- festival ---------- */
+.letters {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 6px;
+  margin: 10px 0;
+}
+
+.letter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+  padding: 6px 8px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.letter b {
+  min-width: 1.2em;
+}

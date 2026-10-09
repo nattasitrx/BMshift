@@ -9,7 +9,8 @@ export const HARD = 100_000;
 export const W = {
   nightThenAfternoon: 300,
   afternoonThenNight: 300,
-  wantMissed: 200,
+  // คำขอ "ขออยู่" สำคัญกว่าการเฉลี่ยยอดต่างกัน 1 เวร
+  wantMissed: 3000,
   doubleSplit: 40,
   consecutiveDays: 15,
   twoDaysApart: 4,

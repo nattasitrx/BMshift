@@ -229,6 +229,7 @@ export function seedState(): AppState {
     templates: SEED_TEMPLATES,
     settings: { festivalCountsAsWeekend: false, templateOverride: {} },
     days,
+    festivals: [],
     months: {
       '2026-10': imported([{ ...wk('2026-10-31', '2026-11-01', '2026-10-30', '', 'pu', 'la', 'pa'), people: { B: 'pu', C: 'la' } }], {}, []),
       '2026-11': imported(

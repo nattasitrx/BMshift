@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { detectBlocks, templateLetters } from '../src/engine/blocks';
 import { daysInMonth, isWeekend, shiftMonth, weekday } from '../src/engine/dates';
+import { arrangeFestival, listFestivalBlocks, removeFestival, setFestivalPerson } from '../src/engine/festival';
 import { defaultSmcDays, generateMonth, takeFromQueue } from '../src/engine/generate';
 import { seedState, SEED_HOLIDAYS, SEED_TEMPLATES } from '../src/engine/seed';
 import { findIssues, summarizeMonth } from '../src/engine/summary';
@@ -12,6 +13,15 @@ function apply(state: AppState, month: string, requests: ShiftRequest[] = [], se
     state: { ...state, days: r.days, queues: r.queues, months: { ...state.months, [month]: r.record } },
     record: r.record,
   };
+}
+
+/** จัดปีใหม่/สงกรานต์ทั้งหมดในช่วงล่วงหน้า (เหมือนกดในแท็บเทศกาล) */
+function arrangeAll(state: AppState, from = '2026-12', months = 14): AppState {
+  for (const b of listFestivalBlocks(state, from, months)) {
+    const r = arrangeFestival(state, [], b, { seed: 3 });
+    if ('state' in r) state = r.state;
+  }
+  return state;
 }
 
 describe('dates & seed data', () => {
@@ -105,15 +115,19 @@ describe('generateMonth', () => {
   });
 
   it('December 2569: holiday queues, exemptions, เสริม and SMC rules', () => {
-    const s = seedState();
+    const s = arrangeAll(seedState());
     const { state, record } = apply(s, '2026-12');
     const adj = record.blocks.find((b) => b.kind === 'adjacent')!;
     // first 4 eligible from the "หยุดติดกัน" queue
     expect(Object.values(adj.people).sort()).toEqual(['ae', 'alex', 'mouse', 'prae']);
     // those 4 are exempt from normal weekends
     for (const id of Object.values(adj.people)) expect(record.weekendRoles[id]).toBeUndefined();
-    // the New Year block spills into January and is stored now
-    expect(state.days['2027-01-03']?.O).toBeTruthy();
+    // ปีใหม่ที่จัดแยกไว้ ถูกเก็บไว้ตามเดิม (ไม่ถูกสุ่มใหม่)
+    const slots = (d: string) => SLOTS.map((x) => state.days[d]?.[x] ?? '');
+    for (const d of ['2026-12-30', '2026-12-31', '2027-01-01', '2027-01-03']) {
+      expect(slots(d)).toEqual(SLOTS.map((x) => s.days[d]?.[x] ?? ''));
+    }
+    expect(record.info.some((x) => x.startsWith('ปีใหม่'))).toBe(true);
     for (const b of record.blocks.filter((x) => x.kind === 'weekend')) {
       expect(b.extraId).toBeTruthy();
       expect(Object.values(b.people)).not.toContain(b.extraId);
@@ -139,7 +153,7 @@ describe('generateMonth', () => {
       })),
       { id: 'w1', date: '2026-12-16', personId: 'saeng', type: 'want', createdAt: '' },
     ];
-    const { state } = apply(s, '2026-12', reqs);
+    const { state } = apply(arrangeAll(s), '2026-12', reqs);
     for (const d of daysInMonth('2026-12').slice(0, 15)) {
       expect(Object.values(state.days[d] ?? {})).not.toContain('mod');
     }
@@ -147,7 +161,7 @@ describe('generateMonth', () => {
   });
 
   it('runs a full year without breaking hard rules', () => {
-    let state = seedState();
+    let state = arrangeAll(seedState());
     let month = '2026-12';
     for (let k = 0; k < 13; k++) {
       ({ state } = apply(state, month, [], k + 7));
@@ -164,5 +178,56 @@ describe('generateMonth', () => {
       }
       month = shiftMonth(month, 1);
     }
+  });
+});
+
+describe('festivals (ปีใหม่/สงกรานต์ จัดแยก)', () => {
+  it('month generation warns when the festival is not arranged yet', () => {
+    const { state, record } = apply(seedState(), '2026-12');
+    expect(record.warnings.some((w) => w.startsWith('ยังไม่ได้จัดปีใหม่'))).toBe(true);
+    expect(state.days['2026-12-31']?.O).toBeUndefined();
+  });
+
+  it('festival shifts are deducted before balancing the rest of the month', () => {
+    let s = arrangeAll(seedState());
+    const ny = s.festivals.find((f) => f.kind === 'newyear')!;
+    expect(Object.keys(ny.people)).toHaveLength(7);
+    ({ state: s } = apply(s, '2026-12'));
+    const totals = summarizeMonth(s, '2026-12').map((r) => r.total);
+    expect(Math.max(...totals) - Math.min(...totals)).toBeLessThanOrEqual(1);
+    // January keeps Jan 1–3 from the festival and balances around it
+    const { state: jan } = apply(s, '2027-01');
+    for (const d of ['2027-01-01', '2027-01-02', '2027-01-03']) expect(jan.days[d]).toEqual(s.days[d]);
+  });
+
+  it('New Year and Songkran together cover everyone', () => {
+    let s = seedState();
+    s = { ...s, holidays: [...s.holidays, { date: '2027-04-16', name: 'วันหยุดพิเศษ', festival: 'songkran' as const }] };
+    s = arrangeAll(s);
+    const ny = s.festivals.find((f) => f.kind === 'newyear')!;
+    const sk = s.festivals.find((f) => f.kind === 'songkran')!;
+    expect(sk).toBeTruthy();
+    const all = new Set([...Object.values(ny.people), ...Object.values(sk.people)]);
+    expect(all.size).toBe(14);
+  });
+
+  it('re-arranging restores the queue first; swapping a letter moves its cells', () => {
+    let s = seedState();
+    const [b] = listFestivalBlocks(s, '2026-12', 1);
+    const r1 = arrangeFestival(s, [], b, { seed: 1 });
+    if (!('state' in r1)) throw new Error(r1.error);
+    const r2 = arrangeFestival(r1.state, [], b, { seed: 2 });
+    if (!('state' in r2)) throw new Error(r2.error);
+    expect(new Set(Object.values(r2.festival.people))).toEqual(new Set(Object.values(r1.festival.people)));
+    expect(r2.state.festivals).toHaveLength(1);
+
+    const f = r2.state.festivals[0];
+    const outsider = s.people.find((p) => !Object.values(f.people).includes(p.id))!.id;
+    const moved = setFestivalPerson(r2.state, f, 'A', outsider);
+    expect(moved.days[f.eve].PM).toBe(outsider);
+    const removed = removeFestival(moved, moved.festivals[0]);
+    expect(removed.festivals).toHaveLength(0);
+    expect(removed.days['2026-12-31']?.O).toBeUndefined();
+    expect(removed.queues.festival).toEqual(s.queues.festival);
   });
 });

@@ -1,5 +1,5 @@
 import { addDays, daysInMonth, isWeekend, monthOf } from './dates';
-import type { AppState, BlockKind, Holiday, Template } from './types';
+import { SLOTS, type AppState, type BlockKind, type Holiday, type Slot, type Template } from './types';
 
 export interface DetectedBlock {
   start: string;
@@ -57,6 +57,25 @@ function classify(days: string[], holidays: Map<string, Holiday>): BlockKind {
   return 'adjacent';
 }
 
+export interface Cell {
+  date: string;
+  slot: Slot;
+  letter: string;
+}
+
+/** แปลงแพทเทิร์นเป็นช่องเวรจริง (แถวแรก = คืนก่อนวันหยุด) */
+export function templateCells(b: { eve: string; days: string[] }, t: Template): Cell[] {
+  const cells: Cell[] = [];
+  t.rows.forEach((row, r) => {
+    const date = r === 0 ? b.eve : b.days[r - 1];
+    if (!date) return;
+    row.forEach((letter, c) => {
+      if (letter) cells.push({ date, slot: SLOTS[c], letter });
+    });
+  });
+  return cells;
+}
+
 export function templateLetters(t: Template): string[] {
   const set = new Set<string>();
   for (const row of t.rows) for (const c of row) if (c && c !== '*') set.add(c);
@@ -98,13 +117,9 @@ export function pickTemplate(
 }
 
 function lastFestivalSize(state: AppState, kind: 'newyear', before: string): number | undefined {
-  let best: { start: string; size: number } | undefined;
-  for (const m of Object.values(state.months)) {
-    for (const b of m.blocks) {
-      if (b.kind === kind && b.start < before && (!best || b.start > best.start)) {
-        best = { start: b.start, size: Object.keys(b.people).length };
-      }
-    }
-  }
-  return best?.size;
+  const last = (state.festivals ?? [])
+    .filter((f) => f.kind === kind && f.start < before)
+    .sort((a, b) => a.start.localeCompare(b.start))
+    .pop();
+  return last ? Object.keys(last.people).length : undefined;
 }

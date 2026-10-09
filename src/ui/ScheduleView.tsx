@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { holidayMap, isOffDay } from '../engine/blocks';
 import { daysInMonth, shiftMonth, thaiDateLabel, thaiDayShort, thaiMonthLabel } from '../engine/dates';
-import { generateMonth } from '../engine/generate';
+import { generateBest } from '../engine/generate';
 import { findIssues, summarizeMonth } from '../engine/summary';
 import { SLOT_LABEL, type Slot } from '../engine/types';
 import type { Ctx } from './App';
@@ -40,7 +40,7 @@ export function ScheduleView({ state, commit, requests, month }: Ctx) {
     setBusy(true);
     await new Promise((r) => setTimeout(r, 30));
     try {
-      const r = generateMonth(state, requests, month);
+      const r = generateBest(state, requests, month);
       const next = clone(state);
       next.days = r.days;
       next.months[month] = r.record;

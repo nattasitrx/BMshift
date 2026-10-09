@@ -1,4 +1,4 @@
-import { detectBlocks, holidayMap, isOffDay, pickTemplate, templateLetters, type DetectedBlock } from './blocks';
+import { detectBlocks, holidayMap, isOffDay, pickTemplate, templateCells, templateLetters, type Cell, type DetectedBlock } from './blocks';
 import { BIT, COUNTED, maskCost, popcount, type CostCtx } from './cost';
 import { addDays, dateRange, daysInMonth, monthOf, nthWeekdayOfMonth, thaiDateLabel, weekday } from './dates';
 import { mulberry32, randInt, shuffle, type Rng } from './rng';
@@ -75,24 +75,6 @@ export function defaultSmcDays(month: string, holidays: AppState['holidays']): s
   });
 }
 
-interface Cell {
-  date: string;
-  slot: Slot;
-  letter: string;
-}
-
-function templateCells(b: { eve: string; days: string[] }, t: Template): Cell[] {
-  const cells: Cell[] = [];
-  t.rows.forEach((row, r) => {
-    const date = r === 0 ? b.eve : b.days[r - 1];
-    if (!date) return;
-    row.forEach((letter, c) => {
-      if (letter) cells.push({ date, slot: SLOTS[c], letter });
-    });
-  });
-  return cells;
-}
-
 export function generateMonth(
   state: AppState,
   requests: ShiftRequest[],
@@ -117,14 +99,33 @@ export function generateMonth(
 
   // ---- 1. ล้างเดือนนี้ (ยกเว้นวันที่เป็นของช่วงหยุดที่เดือนก่อนจัดไว้แล้ว) ----
   const days = clone(state.days);
+  const isFestival = (k: string) => k === 'newyear' || k === 'songkran';
   const kept = new Set<string>();
   for (const [m, rec] of Object.entries(state.months)) {
     if (m === month) continue;
-    for (const b of rec.blocks) for (const d of dateRange(b.start, b.end)) if (monthOf(d) === month) kept.add(d);
+    for (const b of rec.blocks) {
+      if (isFestival(b.kind)) continue;
+      for (const d of dateRange(b.start, b.end)) if (monthOf(d) === month) kept.add(d);
+    }
   }
   const old = state.months[month];
-  if (old) for (const b of old.blocks) for (const d of dateRange(b.start, b.end)) if (monthOf(d) !== month) delete days[d];
-  for (const d of mDays) if (!kept.has(d)) delete days[d];
+  const removed = new Set<string>(mDays.filter((d) => !kept.has(d)));
+  if (old) {
+    for (const b of old.blocks) {
+      for (const d of dateRange(b.start, b.end)) if (monthOf(d) !== month) removed.add(d);
+    }
+  }
+  for (const d of removed) delete days[d];
+  // ปีใหม่/สงกรานต์ที่จัดแยกไว้แล้ว ใส่กลับเป็นเวรตายตัว
+  const festivals = state.festivals ?? [];
+  for (const f of festivals) {
+    const t = state.templates.find((x) => x.id === f.templateId);
+    if (!t) continue;
+    for (const c of templateCells({ eve: f.eve, days: dateRange(f.start, f.end) }, t)) {
+      const id = f.people[c.letter];
+      if (id && removed.has(c.date)) days[c.date] = { ...(days[c.date] ?? {}), [c.slot]: id };
+    }
+  }
 
   const offBy = new Map<string, Set<string>>();
   const wantBy = new Map<string, Set<string>>();
@@ -185,14 +186,33 @@ export function generateMonth(
   const weekendExempt = new Set<string>();
 
   // ---- 2. ช่วงวันหยุดราชการ (ใช้คิวของแต่ละประเภท) ----
-  for (const b of blocks.filter((x) => x.kind !== 'weekend')) {
+  // เทศกาลมาก่อน เพื่อให้คิววันหยุดอื่นเลี่ยงคนที่อยู่เทศกาลเดือนนี้แล้ว
+  const holidayBlocks = [
+    ...blocks.filter((x) => isFestival(x.kind)),
+    ...blocks.filter((x) => x.kind !== 'weekend' && !isFestival(x.kind)),
+  ];
+  for (const b of holidayBlocks) {
+    if (b.kind === 'newyear' || b.kind === 'songkran') {
+      const name = b.kind === 'newyear' ? 'ปีใหม่' : 'สงกรานต์';
+      const range = `${thaiDateLabel(b.start)} – ${thaiDateLabel(b.end)}`;
+      const f = festivals.find((x) => x.kind === b.kind && x.start <= b.end && x.end >= b.start);
+      if (!f) {
+        warnings.push(`ยังไม่ได้จัด${name} (${range}) — จัดในแท็บ "เทศกาล" ก่อน แล้วค่อยจัดเดือนนี้`);
+        continue;
+      }
+      const ids = [...new Set(Object.values(f.people))];
+      ids.forEach((id) => holidayUsed.add(id));
+      if (state.settings.festivalCountsAsWeekend) ids.forEach((id) => weekendExempt.add(id));
+      info.push(`${name} (${range}) จัดแยกไว้แล้ว: ${ids.map(nameOf).join(', ')} — นำมาหักออกจากยอดเวรแล้ว`);
+      continue;
+    }
     const { template, error } = pickTemplate(b, state, active.length);
     if (!template) {
       warnings.push(error!);
       continue;
     }
     const letters = templateLetters(template);
-    const key: QueueKey = b.kind === 'adjacent' ? 'adjacent' : b.kind === 'midweek' ? 'midweek' : 'festival';
+    const key: QueueKey = b.kind === 'adjacent' ? 'adjacent' : 'midweek';
     const span = [b.eve, ...b.days];
     const free = (id: string) => isActive(id) && !span.some((d) => isOff(id, d));
     const picked = takeFromQueue(q[key], letters.length, [
@@ -209,8 +229,7 @@ export function generateMonth(
     const people = assignLetters(b, template, letters, picked);
     writeCells(templateCells(b, template), people);
     picked.forEach((id) => holidayUsed.add(id));
-    const exempt = b.kind === 'adjacent' || (b.kind !== 'midweek' && state.settings.festivalCountsAsWeekend);
-    if (exempt) picked.forEach((id) => weekendExempt.add(id));
+    if (b.kind === 'adjacent') picked.forEach((id) => weekendExempt.add(id));
     info.push(`${label}: ${letters.map((l) => `${l}=${nameOf(people[l])}`).join(', ')}`);
     records.push({ start: b.start, end: b.end, eve: b.eve, kind: b.kind, templateId: template.id, people });
   }
@@ -596,4 +615,35 @@ export function roleHistory(state: AppState, before: string): Record<string, Wee
 
 function factorial(n: number): number {
   return n <= 1 ? 1 : n * factorial(n - 1);
+}
+
+/**
+ * สุ่มจัดหลายรอบแล้วเลือกผลที่ดีที่สุด: ผิดกฎน้อยสุด → ยอดเวรต่างกันน้อยสุด → ข้อควรเลี่ยงน้อยสุด
+ */
+export function generateBest(
+  state: AppState,
+  requests: ShiftRequest[],
+  month: string,
+  tries = 4,
+  seed = Date.now(),
+): GenerateResult {
+  let best: { r: GenerateResult; score: number } | undefined;
+  for (let k = 0; k < tries; k++) {
+    const r = generateMonth(state, requests, month, { seed: seed + k * 7919 });
+    const issues = findIssues(r.days, state.people, requests, month, state.holidays);
+    const errors = issues.filter((i) => i.level === 'error').length;
+    const warns = issues.length - errors;
+    const totals = new Map<string, number>();
+    for (const d of daysInMonth(month)) {
+      for (const s of ['O', 'I', 'PM', 'N'] as const) {
+        const id = r.days[d]?.[s];
+        if (id) totals.set(id, (totals.get(id) ?? 0) + 1);
+      }
+    }
+    const vals = state.people.filter((p) => p.active).map((p) => totals.get(p.id) ?? 0);
+    const spread = Math.max(...vals) - Math.min(...vals);
+    const score = errors * 10_000 + spread * 100 + warns;
+    if (!best || score < best.score) best = { r, score };
+  }
+  return best!.r;
 }
