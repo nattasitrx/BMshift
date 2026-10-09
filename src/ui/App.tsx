@@ -36,8 +36,15 @@ export function App() {
   const etag = useRef<string | null>(null);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
-  const [tab, setTab] = useState<Tab>('schedule');
-  const [month, setMonth] = useState(() => shiftMonth(toISO(new Date()).slice(0, 7), 1));
+  // ลิงก์จากข้อความ LINE: ?tab=requests&month=YYYY-MM
+  const [tab, setTab] = useState<Tab>(() => {
+    const t = new URLSearchParams(location.search).get('tab');
+    return TABS.some((x) => x.key === t) ? (t as Tab) : 'schedule';
+  });
+  const [month, setMonth] = useState(() => {
+    const m = new URLSearchParams(location.search).get('month');
+    return m && /^\d{4}-\d{2}$/.test(m) ? m : shiftMonth(toISO(new Date()).slice(0, 7), 1);
+  });
   const [requests, setRequests] = useState<ShiftRequest[]>([]);
 
   const reload = useCallback(async () => {

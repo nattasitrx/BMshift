@@ -1,13 +1,26 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { holidayMap, isOffDay } from '../engine/blocks';
 import { daysInMonth, thaiDateLabel, thaiMonthLabel, weekday } from '../engine/dates';
 import { REQUEST_SLOT_LABEL, requestLabel } from '../engine/requests';
-import type { RequestSlot, ShiftRequest } from '../engine/types';
-import { addRequest, deleteRequest, newId } from './api';
+import type { RequestAck, RequestSlot, ShiftRequest } from '../engine/types';
+import { addRequest, deleteRequest, listAcks, newId, setAck } from './api';
 import type { Ctx } from './App';
+import { CallPanel } from './CallPanel';
 import { Chip, getMe, saveMe } from './common';
 
-export function RequestsView({ state, mode, requests, reloadRequests, month }: Ctx) {
+export function RequestsView(ctx: Ctx) {
+  const { state, mode, requests, reloadRequests, month } = ctx;
+  const [acks, setAcks] = useState<RequestAck[]>([]);
+  const reloadAcks = useCallback(async () => {
+    try {
+      setAcks(await listAcks(mode, month));
+    } catch {
+      setAcks([]);
+    }
+  }, [mode, month]);
+  useEffect(() => {
+    reloadAcks();
+  }, [reloadAcks]);
   const [me, setMeState] = useState(getMe);
   const [kind, setKind] = useState<ShiftRequest['type']>('off');
   const [slot, setSlot] = useState<RequestSlot>('day');
@@ -33,6 +46,11 @@ export function RequestsView({ state, mode, requests, reloadRequests, month }: C
       if (same) await deleteRequest(mode, same);
       if (!same || same.type !== kind) {
         await addRequest(mode, { id: newId(), date, personId: me, type: kind, slot, by: meName });
+        // เคยติ๊ก "ไม่มีวันไม่ว่าง" แต่มาลงไม่ว่าง → เปลี่ยนเป็น "ลงข้อมูลแล้ว"
+        if (kind === 'off' && acks.some((a) => a.personId === me && a.kind === 'none')) {
+          await setAck(mode, month, me, 'done');
+          await reloadAcks();
+        }
       }
       await reloadRequests();
     } finally {
@@ -85,6 +103,8 @@ export function RequestsView({ state, mode, requests, reloadRequests, month }: C
           {state.months[month] && ' · เดือนนี้จัดเวรแล้ว คำขอใหม่จะมีผลเมื่อกดจัดใหม่'}
         </p>
       </section>
+
+      <CallPanel key={month} ctx={ctx} me={me} acks={acks} reloadAcks={reloadAcks} />
 
       <h2 className="cal-title">{thaiMonthLabel(month)}</h2>
       <div className={'cal' + (me ? '' : ' disabled')}>

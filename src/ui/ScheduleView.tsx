@@ -287,7 +287,7 @@ export function ScheduleView({ state, mode, commit, requests, month }: Ctx) {
         </section>
       )}
 
-      {dialog && <GenerateDialog state={state} month={month} onClose={() => setDialog(false)} onRun={run} />}
+      {dialog && <GenerateDialog state={state} mode={mode} month={month} onClose={() => setDialog(false)} onRun={run} />}
 
       {edit && (
         <Modal title={`${thaiDateLabel(edit.date)} · ${SLOT_LABEL[edit.col]}`} onClose={() => setEdit(null)}>

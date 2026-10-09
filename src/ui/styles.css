@@ -1459,3 +1459,66 @@ tr.clickable {
   padding: 8px 4px;
   font-size: 14px;
 }
+
+/* ---------- กำหนดส่งข้อมูล / แจ้ง LINE ---------- */
+.call {
+  border-left: 5px solid #06c755;
+}
+
+.call-due {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+
+.call-due .btn-sm {
+  margin-left: auto;
+}
+
+.call-soon {
+  color: #e65100;
+  font-weight: 600;
+}
+
+.call-late {
+  color: var(--err);
+  font-weight: 600;
+}
+
+.call-ack {
+  margin-top: 10px;
+}
+
+.call-ack .seg {
+  margin-top: 4px;
+}
+
+.call-status {
+  margin-top: 10px;
+}
+
+.call-status summary {
+  cursor: pointer;
+}
+
+.call-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin-top: 6px;
+}
+
+.call-person {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.line-btn {
+  background: #06c755;
+  border-color: #06c755;
+  color: #fff;
+  font-weight: 600;
+}

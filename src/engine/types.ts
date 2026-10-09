@@ -182,6 +182,8 @@ export interface AppState {
   holidayDismissed?: string[];
   /** ประวัติว่าใครกดจัด/ล้าง/ย้อนกลับ แต่ละเดือน */
   monthLog?: Record<string, LogEntry[]>;
+  /** กำหนดส่งข้อมูลไม่ว่าง/ขออยู่ของแต่ละเดือน (ตั้งโดยคนจัดเวรเดือนนั้น) */
+  calls?: Record<string, RequestCall>;
   /** สำเนาก่อนการกดครั้งล่าสุดของแต่ละเดือน (สำหรับปุ่มย้อนกลับ) */
   undo?: Record<string, UndoSnapshot>;
   days: Record<string, DayAssign>;
@@ -197,4 +199,20 @@ export interface UndoSnapshot extends LogEntry {
   days: Record<string, DayAssign | null>;
   record: MonthRecord | null;
   queues: Queues;
+}
+
+export interface RequestCall {
+  /** ลงข้อมูลภายในวันนี้ 'YYYY-MM-DD' */
+  due: string;
+  /** ชื่อคนจัดเวรเดือนนี้ */
+  by: string;
+  setAt: string;
+}
+
+/** ยืนยันว่าลงข้อมูลเดือนนั้นแล้ว / ไม่มีวันไม่ว่าง (เก็บแยกรายคน) */
+export interface RequestAck {
+  month: string;
+  personId: string;
+  kind: 'done' | 'none';
+  at: string;
 }

@@ -1,7 +1,9 @@
-import { useState } from 'react';
-import { thaiMonthLabel } from '../engine/dates';
+import { useEffect, useState } from 'react';
+import { thaiDateLabel, thaiMonthLabel } from '../engine/dates';
+import { ackStatus } from '../engine/notify';
 import { stagesOf } from '../engine/generate';
 import type { AppState, GenerateMode } from '../engine/types';
+import { listAcks, type Mode } from './api';
 import { getMe, Modal, saveMe } from './common';
 
 export type MonthAction = GenerateMode | 'clear' | 'undo';
@@ -24,11 +26,13 @@ export function formatWhen(iso: string): string {
 
 export function GenerateDialog({
   state,
+  mode,
   month,
   onClose,
   onRun,
 }: {
   state: AppState;
+  mode: Mode;
   month: string;
   onClose: () => void;
   onRun: (action: MonthAction, byId: string) => Promise<void>;
@@ -36,6 +40,14 @@ export function GenerateDialog({
   const [by, setBy] = useState(getMe);
   const [action, setAction] = useState<MonthAction | ''>('');
   const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState<string[] | null>(null);
+  useEffect(() => {
+    listAcks(mode, month)
+      .then((acks) => setPending(ackStatus(state, acks).pending))
+      .catch(() => setPending(null));
+  }, [mode, month, state]);
+  const call = state.calls?.[month];
+  const names = new Map(state.people.map((p) => [p.id, p.name]));
   const record = state.months[month];
   const done = new Set(stagesOf(record));
   const undo = state.undo?.[month];
@@ -83,6 +95,12 @@ export function GenerateDialog({
         </select>
       </label>
       <p className="muted small">ระบบจะบันทึกว่าใครกดจัดเวร และย้อนกลับได้ถ้ากดผิด</p>
+      {pending && pending.length > 0 && (
+        <p className="small req-off">
+          ⏳ ยังไม่ติ๊กยืนยันลงข้อมูล {pending.length} คน: {pending.map((id) => names.get(id)).join(', ')}
+          {call && ` (กำหนดส่ง ${thaiDateLabel(call.due)})`}
+        </p>
+      )}
       <div className="actions">
         {options.map((a) => (
           <label key={a} className={'action' + (action === a ? ' on' : '') + (a === 'clear' ? ' danger' : '')}>
