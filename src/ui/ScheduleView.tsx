@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { holidayMap, isOffDay } from '../engine/blocks';
 import { daysInMonth, shiftMonth, thaiDateLabel, thaiDayShort, thaiMonthLabel } from '../engine/dates';
-import { clearMonth, generateBest } from '../engine/generate';
+import { clearMonth, generateBest, stagesOf } from '../engine/generate';
 import { undoMonth, withHistory } from '../engine/history';
 import { BIT } from '../engine/cost';
 import { indexRequests, REQUEST_SLOT_LABEL } from '../engine/requests';
@@ -62,7 +62,7 @@ export function ScheduleView({ state, commit, requests, month }: Ctx) {
   const pendingHol = state.holidays.filter((h) => h.pending && h.date.startsWith(month));
   const log = state.monthLog?.[month] ?? [];
   const lastLog = log[log.length - 1];
-  const stages = new Set(record?.stages ?? (record ? ['extra', 'weekend', 'rest'] : []));
+  const stages = new Set(stagesOf(record));
 
   const [editor, setEditor] = useState(getMe);
   const setCell = async (date: string, col: Col, id: string | null) => {
@@ -105,7 +105,7 @@ export function ScheduleView({ state, commit, requests, month }: Ctx) {
           <b>⚠️ วันหยุดของเดือนนี้เปลี่ยนหลังจากจัดเวรแล้ว</b>
           <div className="small">{describeChange(state, holChange)}</div>
           <div className="small">
-            กด ⚙️ จัดเวร… แล้วเลือก "จัดเสาร์–อาทิตย์และวันหยุด" (ตามด้วยจัดวันธรรมดา) หรือ "จัดทั้งหมดใหม่"
+            กด ⚙️ จัดเวร… แล้วเลือก "จัดเฉพาะวันหยุดราชการ" (ตามด้วยเสาร์–อาทิตย์และวันธรรมดา) หรือ "จัดทั้งหมดใหม่"
           </div>
         </div>
       )}
@@ -116,8 +116,9 @@ export function ScheduleView({ state, commit, requests, month }: Ctx) {
         </p>
       )}
       <div className="month-status no-print">
+        <span className={stages.has('holiday') ? 'st done' : 'st'}>วันหยุดราชการ</span>
         <span className={stages.has('extra') ? 'st done' : 'st'}>เสริม</span>
-        <span className={stages.has('weekend') ? 'st done' : 'st'}>เสาร์–อาทิตย์/วันหยุด</span>
+        <span className={stages.has('weekend') ? 'st done' : 'st'}>เสาร์–อาทิตย์</span>
         <span className={stages.has('rest') ? 'st done' : 'st'}>วันธรรมดา + SMC</span>
       </div>
       {lastLog ? (

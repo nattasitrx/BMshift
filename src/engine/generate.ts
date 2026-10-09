@@ -27,21 +27,24 @@ export const QUEUE_KEYS: QueueKey[] = [
 export interface GenerateOptions {
   seed?: number;
   iterations?: number;
-  /** all = จัดใหม่ทั้งเดือน, extra = เฉพาะเวรเสริม, weekend = เสาร์–อาทิตย์/วันหยุด, rest = วันธรรมดา+SMC */
+  /** all = จัดใหม่ทั้งเดือน, holiday = เฉพาะวันหยุดราชการ, extra = เฉพาะเวรเสริม, weekend = เสาร์–อาทิตย์, rest = วันธรรมดา+SMC */
   mode?: GenerateMode;
 }
 
 const STAGE_QUEUES: Record<Stage, QueueKey[]> = {
+  holiday: ['adjacent', 'midweek'],
   extra: ['extra'],
-  weekend: ['adjacent', 'midweek', 'twoWeekend', 'noWeekend'],
+  weekend: ['twoWeekend', 'noWeekend'],
   rest: ['totalExtra', 'nightExtra', 'smc'],
 };
-const STAGE_ORDER: Stage[] = ['extra', 'weekend', 'rest'];
+export const STAGE_ORDER: Stage[] = ['holiday', 'extra', 'weekend', 'rest'];
 const isFestival = (k: string) => k === 'newyear' || k === 'songkran';
 
 export function stagesOf(rec: MonthRecord | undefined): Stage[] {
   if (!rec) return [];
-  return rec.stages ?? STAGE_ORDER;
+  const st = rec.stages ?? STAGE_ORDER;
+  // ข้อมูลก่อนแยกขั้นวันหยุดราชการ: ขั้นเสาร์–อาทิตย์เดิมรวมวันหยุดราชการไว้ด้วย
+  return st.includes('weekend') && !st.includes('holiday') ? ['holiday', ...st] : st;
 }
 
 /** ล้างเวรของเดือน (ยกเว้นวันที่เป็นของช่วงหยุดที่เดือนก่อนจัดไว้) แล้วใส่ปีใหม่/สงกรานต์ที่จัดแยกไว้กลับ */
@@ -146,12 +149,22 @@ export function generateMonth(
   const mode: GenerateMode = opts.mode ?? 'all';
   const old = state.months[month];
   const oldStages = stagesOf(old);
-  // จัดเสาร์–อาทิตย์โดยเก็บเวรเสริมที่จัดไว้ก่อนแล้ว
-  const keepExtra = mode === 'weekend' && oldStages.includes('extra');
-  const runs: Stage[] = mode === 'all' ? STAGE_ORDER : mode === 'weekend' && !keepExtra ? ['extra', 'weekend'] : [mode];
+  // ขั้นที่ล้างทั้งเดือน (วันหยุดราชการ / เสาร์–อาทิตย์) เก็บผลของขั้นที่จัดไว้ก่อน
+  const keepExtra = (mode === 'weekend' || mode === 'holiday') && oldStages.includes('extra');
+  // วันหยุดเปลี่ยนหลังจัด → จัดวันหยุดราชการใหม่ด้วย ไม่เก็บของเดิม
+  const sig = holidaySignature(state.holidays, month);
+  const sameHolidays = !old?.holidaysUsed || JSON.stringify(old.holidaysUsed) === JSON.stringify(sig);
+  const keepHoliday = mode === 'weekend' && oldStages.includes('holiday') && sameHolidays;
+  const runs: Stage[] =
+    mode === 'all'
+      ? STAGE_ORDER
+      : mode === 'weekend'
+        ? [...(keepHoliday ? [] : (['holiday'] as Stage[])), ...(keepExtra ? [] : (['extra'] as Stage[])), 'weekend']
+        : [mode];
   const notes: NonNullable<MonthRecord['notes']> =
     mode === 'all' ? {} : clone(old?.notes ?? (old ? { weekend: { info: old.info, warnings: [] } } : {}));
-  if (mode === 'weekend') delete notes.rest;
+  if (mode === 'weekend' || mode === 'holiday') delete notes.rest;
+  if (mode === 'holiday') delete notes.weekend;
   for (const st of runs) notes[st] = { info: [], warnings: [] };
   let stage: Stage = runs[0];
   const note = (m: string) => notes[stage]!.info.push(m);
@@ -174,8 +187,26 @@ export function generateMonth(
 
   // ---- 1. ล้างส่วนที่จะจัดใหม่ ----
   let days: Record<string, DayAssign>;
-  if (mode === 'all' || mode === 'weekend') {
+  if (mode === 'all' || mode === 'weekend' || mode === 'holiday') {
     days = clearedDays(state, month);
+    // ใส่ผลของขั้นที่เก็บไว้กลับ: เวรเสริม และวันหยุดราชการ
+    if (keepExtra) {
+      for (const b of old?.blocks ?? []) {
+        if (b.kind !== 'weekend' || !b.extraId) continue;
+        for (const d of dateRange(b.start, b.end)) days[d] = { ...(days[d] ?? {}), S: b.extraId };
+      }
+    }
+    if (keepHoliday) {
+      for (const b of old?.blocks ?? []) {
+        if (b.kind !== 'adjacent' && b.kind !== 'midweek') continue;
+        const t = state.templates.find((x) => x.id === b.templateId);
+        if (!t) continue;
+        for (const c of templateCells({ eve: b.eve, days: dateRange(b.start, b.end) }, t)) {
+          const id = b.people[c.letter];
+          if (id) days[c.date] = { ...(days[c.date] ?? {}), [c.slot]: id };
+        }
+      }
+    }
   } else {
     days = clone(state.days);
     // คืนก่อนวันหยุด (รวมปีใหม่/สงกรานต์) เป็นของแพทเทิร์น ไม่ล้าง
@@ -258,11 +289,28 @@ export function generateMonth(
   };
 
   const blocks = detectBlocks(month, state.holidays);
-  const records: BlockRecord[] = mode === 'extra' || mode === 'rest' ? clone(old?.blocks ?? []) : [];
+  const records: BlockRecord[] =
+    mode === 'extra' || mode === 'rest'
+      ? clone(old?.blocks ?? [])
+      : [
+          // เก็บวันหยุดราชการ / เวรเสริมที่จัดไว้ก่อน
+          ...(keepHoliday ? clone((old?.blocks ?? []).filter((b) => b.kind === 'adjacent' || b.kind === 'midweek')) : []),
+          ...(keepExtra && mode === 'holiday'
+            ? (old?.blocks ?? []).filter((b) => b.kind === 'weekend' && b.extraId).map((b) => ({ ...clone(b), people: {} }))
+            : []),
+        ];
   const holidayUsed = new Set<string>();
   const weekendExempt = new Set<string>();
   const festivals = state.festivals ?? [];
   const doWeekend = runs.includes('weekend');
+  const doHoliday = runs.includes('holiday');
+  if (keepHoliday) {
+    for (const b of records) {
+      if (b.kind !== 'adjacent' && b.kind !== 'midweek') continue;
+      for (const id of Object.values(b.people)) holidayUsed.add(id);
+      if (b.kind === 'adjacent') for (const id of Object.values(b.people)) weekendExempt.add(id);
+    }
+  }
 
   // ---- 2. ช่วงวันหยุดราชการ (ใช้คิวของแต่ละประเภท) ----
   // เทศกาลมาก่อน เพื่อให้คิววันหยุดอื่นเลี่ยงคนที่อยู่เทศกาลเดือนนี้แล้ว
@@ -270,8 +318,8 @@ export function generateMonth(
     ...blocks.filter((x) => isFestival(x.kind)),
     ...blocks.filter((x) => x.kind !== 'weekend' && !isFestival(x.kind)),
   ];
-  if (doWeekend) stage = 'weekend';
-  for (const b of doWeekend ? holidayBlocks : []) {
+  if (doHoliday || doWeekend) stage = doHoliday ? 'holiday' : 'weekend';
+  for (const b of doHoliday || doWeekend ? holidayBlocks : []) {
     if (b.kind === 'newyear' || b.kind === 'songkran') {
       const name = b.kind === 'newyear' ? 'ปีใหม่' : 'สงกรานต์';
       const range = `${thaiDateLabel(b.start)} – ${thaiDateLabel(b.end)}`;
@@ -286,6 +334,7 @@ export function generateMonth(
       note(`${name} (${range}) จัดแยกไว้แล้ว: ${ids.map(nameOf).join(', ')} — นำมาหักออกจากยอดเวรแล้ว`);
       continue;
     }
+    if (!doHoliday) continue;
     const { template, error } = pickTemplate(b, state, active.length);
     if (!template) {
       warn(error!);
@@ -343,11 +392,14 @@ export function generateMonth(
   }
 
   // ---- 3. เสาร์–อาทิตย์ปกติ ----
-  const weekendRoles: Record<string, WeekendRole[]> = doWeekend ? {} : clone(old?.weekendRoles ?? {});
-  let noWeekend: string[] = doWeekend ? [] : (old?.noWeekend ?? []);
+  if (doWeekend) stage = 'weekend';
+  // จัดวันหยุดราชการใหม่ = ล้างเสาร์–อาทิตย์ด้วย (คนที่อยู่หยุดติดกันไม่ต้องอยู่ ส-อา จึงต้องจัดใหม่ตาม)
+  const clearsWeekend = doWeekend || mode === 'holiday';
+  const weekendRoles: Record<string, WeekendRole[]> = clearsWeekend ? {} : clone(old?.weekendRoles ?? {});
+  let noWeekend: string[] = clearsWeekend ? [] : (old?.noWeekend ?? []);
   let totalPlusIds: string[] = old?.totalPlus ?? [];
   let nightPlusIds: string[] = old?.nightPlus ?? [];
-  let twoWeekend: string[] = doWeekend ? [] : (old?.twoWeekend ?? []);
+  let twoWeekend: string[] = clearsWeekend ? [] : (old?.twoWeekend ?? []);
   const wkBlocks = blocks.filter((x) => x.kind === 'weekend');
   const wt = state.templates.find((t) => t.kind === 'weekend' && t.days === 2);
   if (wkBlocks.length && !wt && (doWeekend || mode === 'extra')) warn('ไม่มีแพทเทิร์นเสาร์–อาทิตย์ปกติ');
@@ -540,18 +592,21 @@ export function generateMonth(
   }
 
   // ขั้นที่จัดแล้วหลังรอบนี้
+  const invalidated: Stage[] = mode === 'holiday' ? ['weekend', 'rest'] : mode === 'weekend' ? ['rest'] : [];
   const doneStages = STAGE_ORDER.filter(
-    (st) => runs.includes(st) || (mode !== 'all' && oldStages.includes(st) && !(mode === 'weekend' && st === 'rest')),
+    (st) => runs.includes(st) || (mode !== 'all' && oldStages.includes(st) && !invalidated.includes(st)),
   );
 
   // ---- 4. วันธรรมดา: บ่าย/ดึก เฉลี่ยยอดด้วย simulated annealing ----
   const doRest = runs.includes('rest');
   if (doRest) stage = 'rest';
-  if (doRest && !doneStages.includes('weekend')) warn('ยังไม่ได้จัดเสาร์–อาทิตย์/วันหยุด — ยอดเวรจะยังไม่สมบูรณ์');
+  if (doRest && !(doneStages.includes('weekend') && doneStages.includes('holiday'))) {
+    warn('ยังไม่ได้จัดวันหยุดราชการ/เสาร์–อาทิตย์ — ยอดเวรจะยังไม่สมบูรณ์');
+  }
   if (doRest) {
     const masks = buildMasks();
     for (const d of mDays) {
-      if (isOffDay(d, holidays) && doneStages.includes('weekend')) {
+      if (isOffDay(d, holidays) && doneStages.includes('weekend') && doneStages.includes('holiday')) {
         for (const s of ['O', 'I', 'PM', 'N'] as const) {
           if (!days[d]?.[s]) warn(`${thaiDateLabel(d)} ช่อง ${s} ยังไม่มีคน`);
         }
@@ -726,7 +781,7 @@ export function generateMonth(
       generatedAt: new Date().toISOString(),
       stages: doneStages,
       // วันหยุดมีผลกับขั้นเสาร์–อาทิตย์/วันหยุด จัดขั้นอื่นซ้ำไม่ถือว่าอัปเดตวันหยุดแล้ว
-      holidaysUsed: doWeekend || !old ? holidaySignature(state.holidays, month) : old.holidaysUsed,
+      holidaysUsed: doHoliday || doWeekend || !old ? sig : old.holidaysUsed,
       notes,
       queuesBefore,
       queuesAfter: clone(q),

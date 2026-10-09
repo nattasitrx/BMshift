@@ -120,8 +120,8 @@ export type FestivalKind = 'newyear' | 'songkran';
 
 export type WeekendRole = 'A' | 'B' | 'C';
 
-/** ขั้นการจัดเวร: เสริม → เสาร์–อาทิตย์/วันหยุด → วันธรรมดา+SMC */
-export type Stage = 'extra' | 'weekend' | 'rest';
+/** ขั้นการจัดเวร: วันหยุดราชการ → เสริม → เสาร์–อาทิตย์ → วันธรรมดา+SMC */
+export type Stage = 'holiday' | 'extra' | 'weekend' | 'rest';
 export type GenerateMode = Stage | 'all';
 
 export interface MonthRecord {

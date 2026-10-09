@@ -10,7 +10,7 @@ import { rateFor, slipFor } from '../src/engine/pay';
 import { personHistory, queueLastUse, weekendRoleLabel, weekendRoleLoad } from '../src/engine/usage';
 import { seedState, SEED_HOLIDAYS, SEED_TEMPLATES } from '../src/engine/seed';
 import { findIssues, summarizeMonth } from '../src/engine/summary';
-import { SLOTS, type AppState, type ShiftRequest } from '../src/engine/types';
+import { SLOTS, type AppState, type GenerateMode, type ShiftRequest } from '../src/engine/types';
 
 function apply(state: AppState, month: string, requests: ShiftRequest[] = [], seed = 1) {
   const r = generateMonth(state, requests, month, { seed, iterations: 30_000 });
@@ -253,7 +253,7 @@ describe('festivals (ปีใหม่/สงกรานต์ จัดแย
 });
 
 describe('จัดทีละขั้น / ล้าง / ย้อนกลับ', () => {
-  const run = (s: AppState, mode: 'all' | 'extra' | 'weekend' | 'rest', month = '2026-12') => {
+  const run = (s: AppState, mode: GenerateMode, month = '2026-12') => {
     const r = generateBest(s, [], month, 3, 11, mode);
     return { ...s, days: r.days, queues: r.queues, months: { ...s.months, [month]: r.record } };
   };
@@ -274,20 +274,59 @@ describe('จัดทีละขั้น / ล้าง / ย้อนกล�
       expect(Object.values(b.people)).not.toContain(b.extraId);
     }
     expect(s.days['2026-12-15']?.PM).toBeUndefined(); // วันธรรมดายังว่าง
-    expect(s.months['2026-12'].stages).toEqual(['extra', 'weekend']);
+    expect(s.months['2026-12'].stages).toEqual(['holiday', 'extra', 'weekend']);
     const weekendSnapshot = JSON.stringify(weekendDays.map((d) => s.days[d]));
 
     s = run(s, 'rest');
     expect(JSON.stringify(weekendDays.map((d) => ({ ...s.days[d], SMC: undefined })))).toEqual(
       JSON.stringify(JSON.parse(weekendSnapshot).map((a: object) => ({ ...a, SMC: undefined }))),
     );
-    expect(s.months['2026-12'].stages).toEqual(['extra', 'weekend', 'rest']);
+    expect(s.months['2026-12'].stages).toEqual(['holiday', 'extra', 'weekend', 'rest']);
     expect(findIssues(s.days, s.people, [], '2026-12', s.holidays).filter((i) => i.level === 'error')).toEqual([]);
     const totals = summarizeMonth(s, '2026-12').map((r) => r.total);
     expect(Math.max(...totals) - Math.min(...totals)).toBeLessThanOrEqual(1);
     // ปีใหม่ยังอยู่ครบ รวมคืนก่อนวันหยุด
     const ny = s.festivals.find((f) => f.kind === 'newyear')!;
     expect(s.days[ny.eve].PM).toBe(ny.people.A);
+  });
+
+  it('จัดวันหยุดราชการก่อน แล้วเสาร์–อาทิตย์/วันธรรมดาเก็บไว้และหักยอดให้', () => {
+    let s = arrangeAll(seedState());
+    s = run(s, 'holiday');
+    const rec = s.months['2026-12'];
+    expect(rec.stages).toEqual(['holiday']);
+    const adj = rec.blocks.find((b) => b.kind === 'adjacent')!;
+    const mid = rec.blocks.find((b) => b.kind === 'midweek')!;
+    expect(adj && mid).toBeTruthy();
+    expect(s.days['2026-12-05'].O).toBeTruthy(); // ช่วงหยุด 5–7 ธ.ค. จัดแล้ว
+    expect(s.days['2026-12-12']?.O).toBeUndefined(); // เสาร์–อาทิตย์ปกติยังไม่จัด
+    expect(s.days['2026-12-15']?.PM).toBeUndefined(); // วันธรรมดายังไม่จัด
+    const holidayCells = ['2026-12-04', '2026-12-05', '2026-12-06', '2026-12-07', '2026-12-09', '2026-12-10'].map((d) =>
+      JSON.stringify(SLOTS.map((x) => s.days[d]?.[x] ?? '')),
+    );
+
+    s = run(s, 'weekend');
+    expect(s.months['2026-12'].stages).toEqual(['holiday', 'extra', 'weekend']);
+    const after = ['2026-12-04', '2026-12-05', '2026-12-06', '2026-12-07', '2026-12-09', '2026-12-10'].map((d) =>
+      JSON.stringify(SLOTS.map((x) => s.days[d]?.[x] ?? '')),
+    );
+    expect(after).toEqual(holidayCells); // วันหยุดราชการไม่ถูกสุ่มใหม่
+    for (const id of Object.values(adj.people)) expect(s.months['2026-12'].weekendRoles[id]).toBeUndefined();
+
+    s = run(s, 'rest');
+    expect(s.months['2026-12'].stages).toEqual(['holiday', 'extra', 'weekend', 'rest']);
+    expect(findIssues(s.days, s.people, [], '2026-12', s.holidays).filter((i) => i.level === 'error')).toEqual([]);
+    const totals = summarizeMonth(s, '2026-12').map((r) => r.total);
+    expect(Math.max(...totals) - Math.min(...totals)).toBeLessThanOrEqual(1);
+
+    // จัดวันหยุดราชการใหม่ = ล้างเสาร์–อาทิตย์และวันธรรมดา แต่เก็บเวรเสริม
+    const extras = s.months['2026-12'].blocks.filter((b) => b.kind === 'weekend').map((b) => b.extraId);
+    s = run(s, 'holiday');
+    expect(s.months['2026-12'].stages).toEqual(['holiday', 'extra']);
+    expect(s.days['2026-12-15']?.PM).toBeUndefined();
+    expect(weekendDays.map((d) => s.days[d]?.S)).toEqual(
+      weekendDays.map((d) => extras[['12', '13'].includes(d.slice(8)) ? 0 : ['19', '20'].includes(d.slice(8)) ? 1 : 2]),
+    );
   });
 
   it('จัดเฉพาะเสริมหลังจัดครบแล้ว เปลี่ยนแค่ช่องเสริม', () => {

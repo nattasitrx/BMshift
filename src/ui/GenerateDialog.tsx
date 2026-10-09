@@ -1,20 +1,22 @@
 import { useState } from 'react';
 import { thaiMonthLabel } from '../engine/dates';
+import { stagesOf } from '../engine/generate';
 import type { AppState, GenerateMode } from '../engine/types';
 import { getMe, Modal, saveMe } from './common';
 
 export type MonthAction = GenerateMode | 'clear' | 'undo';
 
 export const ACTION_LABEL: Record<MonthAction, string> = {
+  holiday: 'จัดเฉพาะวันหยุดราชการ',
   extra: 'จัดเฉพาะเวรเสริม',
-  weekend: 'จัดเสาร์–อาทิตย์และวันหยุด',
+  weekend: 'จัดเสาร์–อาทิตย์',
   rest: 'จัดวันธรรมดา + SMC',
   all: 'จัดทั้งหมดใหม่',
   clear: 'ล้างทั้งเดือน',
   undo: 'ย้อนกลับการกดครั้งล่าสุด',
 };
 
-const ICON: Record<MonthAction, string> = { extra: '✳️', weekend: '📅', rest: '🗓️', all: '✨', clear: '🗑️', undo: '↩️' };
+const ICON: Record<MonthAction, string> = { holiday: '🏖️', extra: '✳️', weekend: '📅', rest: '🗓️', all: '✨', clear: '🗑️', undo: '↩️' };
 
 export function formatWhen(iso: string): string {
   return new Date(iso).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' });
@@ -35,21 +37,23 @@ export function GenerateDialog({
   const [action, setAction] = useState<MonthAction | ''>('');
   const [busy, setBusy] = useState(false);
   const record = state.months[month];
-  const done = new Set(record?.stages ?? (record ? ['extra', 'weekend', 'rest'] : []));
+  const done = new Set(stagesOf(record));
   const undo = state.undo?.[month];
   const later = Object.keys(state.months).filter((m) => m > month && !state.months[m].info.some((i) => i.startsWith('นำเข้า')));
 
   const desc: Record<MonthAction, string> = {
+    holiday:
+      'หยุดติดกัน / หยุดไม่ติดกันของเดือนนี้ ใช้คิววันหยุด (ปีใหม่/สงกรานต์จัดในแท็บเทศกาล) · เวรวันหยุดจะถูกหักออกก่อนเฉลี่ยเวรที่เหลือ · เสาร์–อาทิตย์และวันธรรมดาจะถูกล้าง',
     extra: 'สุ่มเวรเสริมเสาร์–อาทิตย์จากคิว ไม่แตะเวรอื่น',
-    weekend: `จัด A/B/C เสาร์–อาทิตย์และวันหยุดราชการ${done.has('extra') ? ' (เก็บเวรเสริมที่จัดไว้แล้ว)' : ' + เวรเสริม'} · วันธรรมดาจะถูกล้าง`,
-    rest: `เติมบ่าย/ดึกวันธรรมดาและ SMC ให้ยอดเท่ากัน ไม่แตะเสาร์–อาทิตย์${done.has('weekend') ? '' : ' · ⚠️ ยังไม่ได้จัดเสาร์–อาทิตย์'}`,
+    weekend: `จัดเสาร์–อาทิตย์ปกติ${done.has('holiday') ? ' (เก็บวันหยุดราชการที่จัดไว้แล้ว)' : ' + วันหยุดราชการ'}${done.has('extra') ? ' (เก็บเวรเสริมที่จัดไว้แล้ว)' : ' + เวรเสริม'} · วันธรรมดาจะถูกล้าง`,
+    rest: `เติมบ่าย/ดึกวันธรรมดาและ SMC ให้ยอดเท่ากัน ไม่แตะวันหยุด${done.has('weekend') ? '' : ' · ⚠️ ยังไม่ได้จัดเสาร์–อาทิตย์'}`,
     all: 'ล้างแล้วจัดทุกขั้นในครั้งเดียว',
     clear: 'ลบเวรทั้งหมดของเดือนนี้ และคืนคิวเหมือนยังไม่ได้จัด',
     undo: undo
       ? `กลับไปก่อน "${undo.action}" ของ ${undo.by} (${formatWhen(undo.at)}) · การแก้มือหลังจากนั้นจะหายด้วย`
       : '',
   };
-  const options: MonthAction[] = ['extra', 'weekend', 'rest', 'all', ...(record ? (['clear'] as const) : []), ...(undo ? (['undo'] as const) : [])];
+  const options: MonthAction[] = ['holiday', 'extra', 'weekend', 'rest', 'all', ...(record ? (['clear'] as const) : []), ...(undo ? (['undo'] as const) : [])];
 
   const go = async () => {
     if (!by || !action) return;
@@ -86,14 +90,14 @@ export function GenerateDialog({
             <span>
               <b>
                 {ICON[a]} {ACTION_LABEL[a]}
-                {(a === 'extra' || a === 'weekend' || a === 'rest') && done.has(a) && <span className="done"> ✓ จัดแล้ว</span>}
+                {a !== 'all' && a !== 'clear' && a !== 'undo' && done.has(a) && <span className="done"> ✓ จัดแล้ว</span>}
               </b>
               <span className="muted small">{desc[a]}</span>
             </span>
           </label>
         ))}
       </div>
-      {later.length > 0 && (action === 'all' || action === 'weekend' || action === 'clear') && (
+      {later.length > 0 && (action === 'all' || action === 'weekend' || action === 'holiday' || action === 'clear') && (
         <p className="small req-off">
           เดือนหลังจากนี้ ({later.map(thaiMonthLabel).join(', ')}) จัดไว้แล้ว ควรจัดใหม่ตามลำดับด้วย
         </p>
