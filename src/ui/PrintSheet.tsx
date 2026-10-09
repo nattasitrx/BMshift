@@ -1,8 +1,9 @@
 import { holidayMap, isOffDay } from '../engine/blocks';
 import { daysInMonth, thaiDayShort, thaiMonthLabel } from '../engine/dates';
+import { printName } from '../engine/names';
 import type { AppState } from '../engine/types';
 
-// ตารางสำหรับพิมพ์ฉบับจริง (A4 แนวตั้ง หน้าเดียว): ใช้ชื่อจริง ไม่มีข้อมูลไม่ว่าง/ขออยู่
+// ตารางสำหรับพิมพ์ฉบับจริง (A4 แนวตั้ง หน้าเดียว): ใช้ชื่อจริง (ไม่มีคำนำหน้า/นามสกุล) ไม่มีข้อมูลไม่ว่าง/ขออยู่
 // SMC ไม่มีคอลัมน์แยก — วันที่มี SMC จะแบ่งครึ่งช่องบ่าย (ซ้าย = บ่าย, ขวา = SMC)
 
 // ขนาดคอลัมน์ (มม.) บน A4 แนวตั้ง ขอบ 7 มม. — ใช้ย่อชื่อยาวให้อยู่บรรทัดเดียว
@@ -30,7 +31,7 @@ export function PrintSheet({ state, month }: { state: AppState; month: string })
   const name = (id?: string) => {
     if (!id) return '';
     const p = people.get(id);
-    return p ? p.fullName?.trim() || p.name : '';
+    return p ? printName(p) : '';
   };
   const sized = (text: string, mm: number) => (text ? { fontSize: `${fitPt(text, mm)}pt` } : undefined);
   const cell = (id: string | undefined, na: boolean) => {

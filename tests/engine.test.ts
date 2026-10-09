@@ -5,6 +5,7 @@ import { arrangeFestival, listFestivalBlocks, removeFestival, setFestivalPerson 
 import { clearMonth, defaultSmcDays, generateBest, generateMonth, takeFromQueue } from '../src/engine/generate';
 import { undoMonth, withHistory } from '../src/engine/history';
 import { changedMonths, describeChange, holidayChange } from '../src/engine/holidayCheck';
+import { firstNameOnly, printName } from '../src/engine/names';
 import { seedState, SEED_HOLIDAYS, SEED_TEMPLATES } from '../src/engine/seed';
 import { findIssues, summarizeMonth } from '../src/engine/summary';
 import { SLOTS, type AppState, type ShiftRequest } from '../src/engine/types';
@@ -356,5 +357,17 @@ describe('เตือนเมื่อวันหยุดเปลี่ย�
     let s = gen(seedState(), 'all');
     s = { ...s, holidays: [...s.holidays, { date: '2027-01-04', name: 'หยุดพิเศษปีใหม่', festival: 'newyear' as const }] };
     expect(holidayChange(s, '2026-12')?.added).toEqual(['2027-01-04:newyear']);
+  });
+});
+
+describe('ชื่อตอนพิมพ์', () => {
+  it('เอาเฉพาะชื่อจริง ตัดคำนำหน้าและนามสกุล', () => {
+    expect(firstNameOnly('ภญ.สุภาวดี ศรีสวัสดิ์วงศ์')).toBe('สุภาวดี');
+    expect(firstNameOnly('ภก. ธนพล เจริญสุขสันต์')).toBe('ธนพล');
+    expect(firstNameOnly('เภสัชกรหญิงกนกวรรณ ทองประเสริฐ')).toBe('กนกวรรณ');
+    expect(firstNameOnly('นางสาว ปิยะนุช')).toBe('ปิยะนุช');
+    expect(firstNameOnly('  ปิยะนุช  ')).toBe('ปิยะนุช');
+    expect(printName({ name: 'มด', fullName: '' })).toBe('มด');
+    expect(printName({ name: 'มด' })).toBe('มด');
   });
 });

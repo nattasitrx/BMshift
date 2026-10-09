@@ -104,7 +104,7 @@ function PeopleSection({ d, update }: SectionProps) {
             <input
               className="fullname-input"
               value={p.fullName ?? ''}
-              placeholder="ชื่อจริง (ใช้ตอนพิมพ์)"
+              placeholder="ชื่อจริง ไม่ต้องมีคำนำหน้า/นามสกุล"
               onChange={(e) => update((x) => (x.people[i].fullName = e.target.value))}
               aria-label="ชื่อจริง"
             />
@@ -155,7 +155,7 @@ function PeopleSection({ d, update }: SectionProps) {
           + เพิ่ม
         </button>
       </form>
-      <p className="muted small">ช่องแรก = ชื่อเล่น (ใช้ตอนจัดเวร) · ช่องที่สอง = ชื่อจริง (ใช้ตอนพิมพ์) · คนใหม่จะถูกต่อท้ายทุกคิว</p>
+      <p className="muted small">ช่องแรก = ชื่อเล่น (ใช้ตอนจัดเวร) · ช่องที่สอง = ชื่อจริง ใช้ตอนพิมพ์ (ถ้าใส่คำนำหน้าหรือนามสกุลมา ระบบจะตัดออกเอง) · คนใหม่จะถูกต่อท้ายทุกคิว</p>
     </section>
   );
 }
