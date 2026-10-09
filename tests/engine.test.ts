@@ -475,3 +475,16 @@ describe('ชื่อแพทเทิร์นและประวัติ�
     for (const id of r.record.totalPlus ?? []) expect(use.totalExtra?.get(id)?.month).toBe('2026-12');
   });
 });
+
+describe('ข้อมูล พ.ย. 69', () => {
+  it('มดกับแสงอยู่ในคิวไม่อยู่ ส-อา ของ พ.ย. 69 (ทั้งข้อมูลตั้งต้นและข้อมูลที่บันทึกไว้ก่อน)', async () => {
+    const { migrate } = await import('../src/ui/api');
+    expect(seedState().months['2026-11'].noWeekend).toEqual(['mod', 'saeng']);
+    const old = seedState();
+    delete old.months['2026-11'].noWeekend;
+    const m = migrate(old);
+    expect(m.months['2026-11'].noWeekend).toEqual(['mod', 'saeng']);
+    expect(queueLastUse(m).noWeekend?.get('mod')?.month).toBe('2026-11');
+    expect(personHistory(m, 'saeng', ['2026-11']).map((e) => e.text)).toEqual(['ไม่อยู่ ส-อา พฤศจิกายน 2569']);
+  });
+});

@@ -197,13 +197,22 @@ const NOV: [number, DayAssign][] = [
   [30, { PM: 'la', N: 'eve' }],
 ];
 
-const imported = (blocks: MonthRecord['blocks'], roles: MonthRecord['weekendRoles'], smcDays: string[]): MonthRecord => ({
+/** พ.ย. 69 มดกับแสงไม่อยู่ ส-อา (คิว "ไม่อยู่ ส-อา" ในสมุด) */
+export const NOV_NO_WEEKEND = ['mod', 'saeng'];
+
+const imported = (
+  blocks: MonthRecord['blocks'],
+  roles: MonthRecord['weekendRoles'],
+  smcDays: string[],
+  noWeekend?: string[],
+): MonthRecord => ({
   generatedAt: '2026-10-09T00:00:00.000Z',
   queuesBefore: SEED_QUEUES,
   queuesAfter: SEED_QUEUES,
   blocks,
   smcDays,
   weekendRoles: roles,
+  ...(noWeekend ? { noWeekend } : {}),
   info: ['นำเข้าจากรูปตารางเวร (ไม่ได้จัดด้วยระบบ) — โปรดตรวจความถูกต้อง'],
   warnings: [],
 });
@@ -246,6 +255,7 @@ export function seedState(): AppState {
           ae: ['C'], pak: ['C'], pae: ['C'], poy: ['C'],
         },
         ['2026-11-02', '2026-11-04', '2026-11-11', '2026-11-16', '2026-11-18', '2026-11-25'],
+        NOV_NO_WEEKEND,
       ),
     },
   };

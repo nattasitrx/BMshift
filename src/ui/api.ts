@@ -1,5 +1,5 @@
 import { DEFAULT_PAY_RATES } from '../engine/pay';
-import { defaultFestivalGroup, seedState } from '../engine/seed';
+import { defaultFestivalGroup, NOV_NO_WEEKEND, seedState } from '../engine/seed';
 import type { AppState, ShiftRequest } from '../engine/types';
 
 // ถ้าเปิดบน Netlify ข้อมูลอยู่ที่เซิร์ฟเวอร์ (ทุกคนเห็นตรงกัน)
@@ -42,9 +42,16 @@ export async function loadState(): Promise<{ mode: Mode; state: AppState; etag: 
 }
 
 /** เติมฟิลด์ใหม่ให้ข้อมูลที่บันทึกไว้ก่อนอัปเดต */
-function migrate(s: AppState): AppState {
+export function migrate(s: AppState): AppState {
+  // พ.ย. 69 ที่นำเข้าจากรูป: เติมคิว "ไม่อยู่ ส-อา" (มด, แสง) ให้ข้อมูลที่บันทึกไว้ก่อนมีฟิลด์นี้
+  const nov = s.months?.['2026-11'];
+  const months =
+    nov && !nov.noWeekend && nov.info?.some((i) => i.startsWith('นำเข้า'))
+      ? { ...s.months, '2026-11': { ...nov, noWeekend: NOV_NO_WEEKEND } }
+      : s.months;
   return {
     ...s,
+    months,
     festivals: s.festivals ?? [],
     festivalGroup: s.festivalGroup ?? defaultFestivalGroup(s.people.map((p) => p.id), s.queues?.festival),
     settings: { ...s.settings, payRates: s.settings.payRates ?? DEFAULT_PAY_RATES },
