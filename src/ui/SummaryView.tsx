@@ -15,15 +15,15 @@ export function SummaryView(ctx: Ctx) {
   const [view, setView] = useState<'person' | 'slip' | 'pattern'>('person');
   return (
     <div>
-      <div className="seg no-print">
+      <div className="seg seg-nowrap no-print">
         <button className={view === 'person' ? 'seg-on' : ''} onClick={() => setView('person')}>
-          👤 รายคน
+          รายคน
         </button>
         <button className={view === 'slip' ? 'seg-on' : ''} onClick={() => setView('slip')}>
-          🧾 ใบเวรน้อย
+          ใบเวรน้อย
         </button>
         <button className={view === 'pattern' ? 'seg-on' : ''} onClick={() => setView('pattern')}>
-          🔁 แพทเทิร์น
+          แพทเทิร์น
         </button>
       </div>
       {view === 'person' && <PersonSummary {...ctx} />}

@@ -1411,3 +1411,51 @@ tr.clickable {
 .tab span {
   font-size: 18px;
 }
+
+.rename-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.rename-choice .check {
+  align-items: flex-start;
+}
+
+.tag-rename,
+.tag-norename {
+  display: inline-block;
+  font-size: 12px;
+  padding: 0 8px;
+  border-radius: 999px;
+  margin-top: 2px;
+}
+
+.tag-rename {
+  background: #e3f2fd;
+  color: #0d47a1;
+}
+
+.tag-norename {
+  background: #fff3e0;
+  color: #e65100;
+}
+
+.sched td.marked {
+  position: relative;
+}
+
+.cell-mark {
+  position: absolute;
+  top: 1px;
+  right: 2px;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.seg-nowrap button {
+  white-space: nowrap;
+  padding: 8px 4px;
+  font-size: 14px;
+}

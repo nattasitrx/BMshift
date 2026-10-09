@@ -51,3 +51,9 @@ export function undoMonth(state: AppState, month: string, by: string): AppState 
     monthLog: { ...(state.monthLog ?? {}), [month]: [...(state.monthLog?.[month] ?? []), entry] },
   };
 }
+
+/** บันทึกประวัติอย่างเดียว (ไม่แก้ตาราง ไม่ทับสำเนาสำหรับย้อนกลับ) */
+export function logOnly(state: AppState, month: string, by: string, action: string): AppState {
+  const entry: LogEntry = { at: new Date().toISOString(), by, action };
+  return { ...state, monthLog: { ...(state.monthLog ?? {}), [month]: [...(state.monthLog?.[month] ?? []), entry] } };
+}

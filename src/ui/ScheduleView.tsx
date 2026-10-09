@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { holidayMap, isOffDay } from '../engine/blocks';
 import { daysInMonth, shiftMonth, thaiDateLabel, thaiDayShort, thaiMonthLabel } from '../engine/dates';
 import { clearMonth, generateBest, stagesOf } from '../engine/generate';
@@ -12,14 +12,23 @@ import type { Ctx } from './App';
 import { Chip, clone, getMe, Modal, saveMe } from './common';
 import { ACTION_LABEL, formatWhen, GenerateDialog, type MonthAction } from './GenerateDialog';
 import { PrintSheet } from './PrintSheet';
+import { listMarket } from './api';
+import { cellMarks, type MarketOffer, type MarketPost } from '../engine/market';
 import { weekendRoleLabel } from '../engine/usage';
 
 type Col = Slot | 'SMC';
 const COLS: Col[] = ['O', 'I', 'S', 'PM', 'N', 'SMC'];
 
-export function ScheduleView({ state, commit, requests, month }: Ctx) {
+export function ScheduleView({ state, mode, commit, requests, month }: Ctx) {
   const [edit, setEdit] = useState<{ date: string; col: Col } | null>(null);
   const [dialog, setDialog] = useState(false);
+  // สัญลักษณ์จากตลาดเวร: 🏷️ ประกาศขาย, 🔄 หาแลก, 🤝 ขาย/แลกแบบไม่แก้ชื่อแล้ว
+  const [market, setMarket] = useState<{ posts: MarketPost[]; offers: MarketOffer[] }>({ posts: [], offers: [] });
+  useEffect(() => {
+    listMarket(mode, month)
+      .then(setMarket)
+      .catch(() => setMarket({ posts: [], offers: [] }));
+  }, [mode, month]);
   const people = new Map(state.people.map((p) => [p.id, p]));
   const hol = holidayMap(state.holidays);
   const days = daysInMonth(month);
@@ -89,6 +98,7 @@ export function ScheduleView({ state, commit, requests, month }: Ctx) {
   };
 
   const issueDates = new Set(issues.filter((i) => i.level === 'error').map((i) => i.date));
+  const marks = cellMarks(market.posts, market.offers, (id) => people.get(id)?.name ?? id);
 
   return (
     <div>
@@ -160,14 +170,17 @@ export function ScheduleView({ state, commit, requests, month }: Ctx) {
                   {COLS.map((c) => {
                     const usable = off ? c !== 'SMC' : c === 'PM' || c === 'N' || c === 'SMC';
                     const p = a[c] ? people.get(a[c]!) : undefined;
+                    const mark = marks.get(`${d}|${c}`);
                     return (
                       <td
                         key={c}
-                        className={usable ? 'cell' : 'cell na'}
+                        className={(usable ? 'cell' : 'cell na') + (mark ? ' marked' : '')}
                         style={p ? { background: p.color } : undefined}
+                        title={mark?.title}
                         onClick={usable ? () => setEdit({ date: d, col: c }) : undefined}
                       >
                         {p && <Chip person={p} small />}
+                        {mark && <span className="cell-mark">{mark.icon}</span>}
                       </td>
                     );
                   })}
@@ -181,6 +194,13 @@ export function ScheduleView({ state, commit, requests, month }: Ctx) {
           </tbody>
         </table>
       </div>
+
+      {marks.size > 0 && (
+        <p className="muted small no-print">
+          🏷️ มีประกาศขาย · 🔄 มีประกาศหาแลก · 🤝 ขาย/แลกแล้วแบบไม่แก้ชื่อ (ชื่อในตาราง = คนรับเงิน) — แตะค้าง/ชี้เพื่อดูรายละเอียด
+          ไปที่แท็บตลาด
+        </p>
+      )}
 
       {issues.length > 0 && (
         <section className="card">

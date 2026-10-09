@@ -24,6 +24,8 @@ export interface MarketPost {
   /** หาแลก: อยากได้วันไหนแทน (ข้อความ) */
   want?: string;
   note?: string;
+  /** ขาย/หาแลก: ตกลงแล้วแก้ชื่อในตาราง (ค่าเริ่มต้น) หรือไม่แก้ (เงินเข้าชื่อเดิม แล้วโอนกันเอง) */
+  rename?: boolean;
   status: 'open' | 'done' | 'cancelled';
   /** ข้อเสนอที่ตกลง */
   dealId?: string;
@@ -48,8 +50,47 @@ export interface MarketOffer {
   /** แลก/ขายให้: เวรของคนเสนอ */
   date?: string;
   slot?: MarketSlot;
+  /** ขายให้ (ประกาศรับซื้อ): แก้ชื่อในตารางหรือไม่ */
+  rename?: boolean;
   note?: string;
   createdAt: string;
+}
+
+/** ดีลนี้แก้ชื่อในตารางไหม: คนขายเป็นคนเลือก */
+export function dealRenames(post: MarketPost, offer?: MarketOffer): boolean {
+  return post.kind === 'buy' ? offer?.rename !== false : post.rename !== false;
+}
+
+export const RENAME_LABEL = { true: 'แก้ชื่อในตาราง', false: 'ไม่แก้ชื่อ (เงินเข้าชื่อเดิม โอนกันเอง)' } as const;
+
+export interface CellMark {
+  icon: string;
+  title: string;
+}
+
+/**
+ * สัญลักษณ์ในช่องตาราง: 🏷️/🔄 = มีประกาศขาย/หาแลกอยู่, 🤝 = ขาย/แลกแบบไม่แก้ชื่อแล้ว (คนอยู่จริงเป็นอีกคน)
+ * key = วันที่|ช่อง
+ */
+export function cellMarks(posts: MarketPost[], offers: MarketOffer[], name: (id: string) => string): Map<string, CellMark> {
+  const out = new Map<string, CellMark>();
+  for (const p of posts) {
+    if (p.status === 'open' && p.kind !== 'buy' && p.slot) {
+      out.set(`${p.date}|${p.slot}`, { icon: POST_ICON[p.kind], title: `${name(p.by)} ${POST_LABEL[p.kind]}` });
+    }
+    if (p.status !== 'done') continue;
+    const o = offers.find((x) => x.id === p.dealId);
+    if (!o || dealRenames(p, o)) continue;
+    if (p.kind === 'buy') {
+      if (o.date && o.slot) out.set(`${o.date}|${o.slot}`, { icon: '🤝', title: `${name(o.by)} ขายให้ ${name(p.by)} แล้ว (ไม่แก้ชื่อ) — อยู่จริง: ${name(p.by)}` });
+    } else if (p.slot) {
+      out.set(`${p.date}|${p.slot}`, { icon: '🤝', title: `${name(p.by)} ${o.kind === 'swap' ? 'แลก' : 'ขาย'}ให้ ${name(o.by)} แล้ว (ไม่แก้ชื่อ) — อยู่จริง: ${name(o.by)}` });
+      if (o.kind === 'swap' && o.date && o.slot) {
+        out.set(`${o.date}|${o.slot}`, { icon: '🤝', title: `${name(o.by)} แลกให้ ${name(p.by)} แล้ว (ไม่แก้ชื่อ) — อยู่จริง: ${name(p.by)}` });
+      }
+    }
+  }
+  return out;
 }
 
 export const shiftText = (date: string, slot?: MarketSlot) =>

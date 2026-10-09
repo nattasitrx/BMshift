@@ -25,6 +25,7 @@ function cleanPost(r: Record<string, unknown>) {
   return {
     id: r.id, month: r.month, kind: r.kind, by: r.by, date: r.date, slot: r.slot,
     want: str(r.want, 200), note: str(r.note, 300), status: r.status, dealId: r.dealId,
+    rename: typeof r.rename === 'boolean' ? r.rename : undefined,
     createdAt: str(r.createdAt, 40) ?? new Date().toISOString(),
     closedAt: str(r.closedAt, 40),
   };
@@ -41,6 +42,7 @@ function cleanOffer(r: Record<string, unknown>) {
   if (!ok) return null;
   return {
     id: r.id, postId: r.postId, month: r.month, by: r.by, kind: r.kind, date: r.date, slot: r.slot,
+    rename: typeof r.rename === 'boolean' ? r.rename : undefined,
     note: str(r.note, 300), createdAt: str(r.createdAt, 40) ?? new Date().toISOString(),
   };
 }

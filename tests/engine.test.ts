@@ -3,12 +3,12 @@ import { detectBlocks, templateLetters } from '../src/engine/blocks';
 import { daysInMonth, isWeekend, shiftMonth, thaiDateLabel, weekday } from '../src/engine/dates';
 import { arrangeFestival, listFestivalBlocks, removeFestival, setFestivalPerson } from '../src/engine/festival';
 import { clearMonth, defaultSmcDays, generateBest, generateMonth, takeFromQueue } from '../src/engine/generate';
-import { undoMonth, withHistory } from '../src/engine/history';
+import { logOnly, undoMonth, withHistory } from '../src/engine/history';
 import { changedMonths, describeChange, holidayChange } from '../src/engine/holidayCheck';
 import { firstNameOnly, printName } from '../src/engine/names';
 import { rateFor, slipFor } from '../src/engine/pay';
 import { personHistory, queueLastUse, weekendRoleLabel, weekendRoleLoad } from '../src/engine/usage';
-import { applyDeal, shiftsOf, type MarketOffer, type MarketPost } from '../src/engine/market';
+import { applyDeal, cellMarks, dealRenames, shiftsOf, type MarketOffer, type MarketPost } from '../src/engine/market';
 import { seedState, SEED_HOLIDAYS, SEED_TEMPLATES } from '../src/engine/seed';
 import { findIssues, summarizeMonth } from '../src/engine/summary';
 import { SLOTS, type AppState, type GenerateMode, type ShiftRequest } from '../src/engine/types';
@@ -573,5 +573,40 @@ describe('ตลาดเวร', () => {
     expect(shiftsOf(base(), 'pu', '2026-11').map((x) => `${x.date.slice(8)}${x.slot}`)).toEqual([
       '01O', '01PM', '07S', '07N', '20N', '22O', '22PM', '26N',
     ]);
+  });
+});
+
+describe('ตลาดเวร: แก้ชื่อ / ไม่แก้ชื่อ และสัญลักษณ์ในตาราง', () => {
+  const p = (x: Partial<MarketPost>): MarketPost => ({
+    id: 'p1', month: '2026-11', kind: 'sell', by: 'alex', date: '2026-11-03', slot: 'PM', status: 'open', createdAt: '', ...x,
+  });
+  const o = (x: Partial<MarketOffer>): MarketOffer => ({ id: 'o1', postId: 'p1', month: '2026-11', by: 'prae', kind: 'take', createdAt: '', ...x });
+  const nm = (id: string) => id;
+
+  it('คนขายเป็นคนเลือก: ประกาศขาย = ที่ประกาศ, รับซื้อ = ที่คนเสนอขายเลือก (ค่าเริ่มต้นแก้ชื่อ)', () => {
+    expect(dealRenames(p({}), o({}))).toBe(true);
+    expect(dealRenames(p({ rename: false }), o({}))).toBe(false);
+    expect(dealRenames(p({ kind: 'buy' }), o({ kind: 'give', rename: false }))).toBe(false);
+    expect(dealRenames(p({ kind: 'buy' }), o({ kind: 'give' }))).toBe(true);
+  });
+
+  it('ประกาศเปิดอยู่ = 🏷️/🔄, ขายแบบไม่แก้ชื่อแล้ว = 🤝, แก้ชื่อแล้ว = ไม่มีสัญลักษณ์', () => {
+    expect(cellMarks([p({})], [], nm).get('2026-11-03|PM')?.icon).toBe('🏷️');
+    expect(cellMarks([p({ kind: 'swap' })], [], nm).get('2026-11-03|PM')?.icon).toBe('🔄');
+    const done = p({ status: 'done', dealId: 'o1', rename: false });
+    expect(cellMarks([done], [o({})], nm).get('2026-11-03|PM')).toMatchObject({ icon: '🤝' });
+    expect(cellMarks([{ ...done, rename: true }], [o({})], nm).size).toBe(0);
+    // แลกแบบไม่แก้ชื่อ: ติดทั้งสองช่อง
+    const sw = cellMarks([p({ kind: 'swap', status: 'done', dealId: 'o1', rename: false })], [o({ kind: 'swap', date: '2026-11-10', slot: 'PM' })], nm);
+    expect([...sw.keys()].sort()).toEqual(['2026-11-03|PM', '2026-11-10|PM']);
+  });
+
+  it('ไม่แก้ชื่อ = ใบเวรน้อยยังเป็นของคนขาย', () => {
+    const s = seedState();
+    const before = slipFor(s, '2026-11', 'alex').count;
+    const logged = logOnly(s, '2026-11', 'อาเล็ก', 'ตลาดเวร (ไม่แก้ชื่อ): ...');
+    expect(logged.days).toBe(s.days);
+    expect(slipFor(logged, '2026-11', 'alex').count).toBe(before);
+    expect(logged.monthLog?.['2026-11']?.[0].action).toContain('ไม่แก้ชื่อ');
   });
 });

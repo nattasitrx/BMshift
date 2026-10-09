@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { daysInMonth, thaiDateLabel, thaiMonthLabel } from '../engine/dates';
-import { withHistory } from '../engine/history';
+import { logOnly, withHistory } from '../engine/history';
 import {
   applyDeal,
+  dealRenames,
   OFFER_LABEL,
+  RENAME_LABEL,
   offerKindsFor,
   POST_ICON,
   POST_LABEL,
@@ -75,8 +77,15 @@ export function MarketView({ state, mode, commit, requests, month }: Ctx) {
       const warn = deal.issues.length
         ? `\n\n⚠️ หลังแลกจะผิดกฎ:\n${deal.issues.map((i) => `• ${thaiDateLabel(i.date)} ${i.message}`).join('\n')}`
         : '';
-      if (!confirm(`ตกลงดีลนี้? ระบบจะแก้ตารางให้\n\n${deal.summary}${warn}`)) return;
-      const ok = await commit(withHistory(state, deal.state, post.month, name(me), `ตลาดเวร: ${deal.summary}`));
+      const rename = dealRenames(post, offer);
+      const how = rename
+        ? 'ระบบจะแก้ชื่อในตาราง (ใบเวรน้อย/เงินไปตามคนที่อยู่จริง)'
+        : 'ไม่แก้ชื่อในตาราง — ใบเวรน้อย/เงินยังเป็นของคนขาย แล้วโอนให้กันเอง (ช่องในตารางจะมี 🤝)';
+      if (!confirm(`ตกลงดีลนี้?\n${how}\n\n${deal.summary}${warn}`)) return;
+      const next = rename
+        ? withHistory(state, deal.state, post.month, name(me), `ตลาดเวร: ${deal.summary}`)
+        : logOnly(state, post.month, name(me), `ตลาดเวร (ไม่แก้ชื่อ): ${deal.summary}`);
+      const ok = await commit(next);
       if (!ok) return;
       await saveMarket(mode, 'post', { ...post, status: 'done', dealId: offer.id, closedAt: new Date().toISOString() });
     });
@@ -105,7 +114,8 @@ export function MarketView({ state, mode, commit, requests, month }: Ctx) {
         </label>
         <p className="muted small">
           🏷️ ขายเวร = หาคนรับเวรของเราไป · 🔄 หาแลก = เอาเวรของเราแลกกับวันอื่น · 🛒 รับซื้อ = อยากได้เวรเพิ่ม · คนที่สนใจกด
-          "เสนอ" แล้วเจ้าของประกาศกด "ตกลง" ระบบจะแก้ตารางให้และบันทึกในประวัติ
+          "เสนอ" แล้วเจ้าของประกาศกด "ตกลง" · คนขายเลือกได้ว่าจะ<b>แก้ชื่อในตาราง</b> (ใบเวรน้อย/เงินไปตามคนที่อยู่จริง) หรือ
+          <b>ไม่แก้ชื่อ</b> (เงินเข้าชื่อเดิมแล้วโอนกันเอง ช่องในตารางขึ้น 🤝) · ทุกดีลบันทึกในประวัติ
         </p>
         <div className="row wrap">
           <button className="btn-primary" disabled={!me} onClick={() => setComposing(!composing)}>
@@ -166,11 +176,14 @@ export function MarketView({ state, mode, commit, requests, month }: Ctx) {
                   <span className="grow">
                     <b>{name(p.by)}</b> {POST_LABEL[p.kind]} {p.slot || p.kind === 'buy' ? shiftText(p.date, p.slot) : ''}
                     {p.status === 'done' && deal ? (
+                      <>
                       <span className="req-want">
                         {' '}
                         ✓ ตกลงกับ {name(deal.by)}
                         {deal.date && deal.slot ? ` (${shiftText(deal.date, deal.slot)})` : ''}
                       </span>
+                      <span className="muted small"> · {dealRenames(p, deal) ? 'แก้ชื่อแล้ว' : 'ไม่แก้ชื่อ 🤝'}</span>
+                      </>
                     ) : (
                       <span className="muted"> · ยกเลิก</span>
                     )}
@@ -205,6 +218,7 @@ function NewPost({
   const [slot, setSlot] = useState<MarketSlot | ''>('');
   const [want, setWant] = useState('');
   const [note, setNote] = useState('');
+  const [rename, setRename] = useState(true);
   const days = daysInMonth(month);
   const canSubmit = kind === 'buy' ? !!date : !!shift;
 
@@ -263,6 +277,7 @@ function NewPost({
           <input value={want} onChange={(e) => setWant(e.target.value)} placeholder="เช่น วันธรรมดาสัปดาห์ที่ 3, บ่ายวันไหนก็ได้" />
         </label>
       )}
+      {kind !== 'buy' && <RenameChoice value={rename} onChange={setRename} />}
       <label className="field col">
         หมายเหตุ
         <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="(ไม่บังคับ)" />
@@ -281,6 +296,7 @@ function NewPost({
             slot: (s || undefined) as MarketSlot | undefined,
             want: kind === 'swap' ? want || undefined : undefined,
             note: note || undefined,
+            rename: kind === 'buy' ? undefined : rename,
             status: 'open',
             createdAt: new Date().toISOString(),
           });
@@ -319,6 +335,7 @@ function PostCard({
   const [kind, setKind] = useState<OfferKind>(kinds[0]);
   const [shift, setShift] = useState('');
   const [note, setNote] = useState('');
+  const [rename, setRename] = useState(true);
   const mineShifts = shiftsOf(state, me, post.month).filter(
     (s) => post.kind !== 'buy' || s.date === post.date || !post.date,
   );
@@ -336,6 +353,11 @@ function PostCard({
       </div>
       <div className="post-shift">{shiftText(post.date, post.slot)}</div>
       {post.want && <div className="small">อยากได้แทน: {post.want}</div>}
+      {post.kind !== 'buy' && (
+        <div className="small">
+          <span className={post.rename === false ? 'tag-norename' : 'tag-rename'}>{RENAME_LABEL[String(post.rename !== false) as 'true' | 'false']}</span>
+        </div>
+      )}
       {post.note && <div className="small muted">{post.note}</div>}
 
       {offers.length > 0 && (
@@ -346,6 +368,7 @@ function PostCard({
               <span className="grow small">
                 {OFFER_LABEL[o.kind]}
                 {o.date && o.slot ? ` ${shiftText(o.date, o.slot)}` : ''}
+                {o.kind === 'give' && (o.rename === false ? ' · ไม่แก้ชื่อ' : ' · แก้ชื่อ')}
                 {o.note ? ` · ${o.note}` : ''}
               </span>
               {isOwner && (
@@ -389,6 +412,7 @@ function PostCard({
               ))}
             </select>
           )}
+          {kind === 'give' && <RenameChoice value={rename} onChange={setRename} />}
           <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="หมายเหตุ (ไม่บังคับ)" />
           <button
             className="btn"
@@ -403,6 +427,7 @@ function PostCard({
                 kind,
                 date: needsShift ? d : undefined,
                 slot: needsShift ? (s as MarketSlot) : undefined,
+                rename: kind === 'give' ? rename : undefined,
                 note: note || undefined,
                 createdAt: new Date().toISOString(),
               });
@@ -419,5 +444,24 @@ function PostCard({
         <p className="muted small">คุณเสนอไปแล้ว รอเจ้าของประกาศตกลง</p>
       )}
     </section>
+  );
+}
+
+function RenameChoice({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <div className="rename-choice">
+      <label className="check">
+        <input type="radio" checked={value} onChange={() => onChange(true)} />
+        <span>
+          <b>แก้ชื่อในตาราง</b> <span className="muted small">— ใบเวรน้อย/เงินไปตามคนที่อยู่จริง</span>
+        </span>
+      </label>
+      <label className="check">
+        <input type="radio" checked={!value} onChange={() => onChange(false)} />
+        <span>
+          <b>ไม่แก้ชื่อ</b> <span className="muted small">— เงินเข้าชื่อเดิม แล้วโอนให้กันเอง</span>
+        </span>
+      </label>
+    </div>
   );
 }
