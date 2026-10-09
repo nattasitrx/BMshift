@@ -132,6 +132,11 @@ export function FestivalView({ state, mode, commit }: Ctx) {
                 {f.templateId !== chosenId && (
                   <p className="small muted">เปลี่ยนแพทเทิร์นแล้ว กด "จัดใหม่" เพื่อใช้แพทเทิร์นใหม่</p>
                 )}
+                {(f.start !== b.start || f.end !== b.end) && (
+                  <p className="small req-off">
+                    วันหยุดเปลี่ยน (จัดไว้ {thaiDateLabel(f.start)} – {thaiDateLabel(f.end)}) — กด "จัดใหม่" ให้ตรงกับวันหยุดล่าสุด
+                  </p>
+                )}
                 {!sameGroup(f, state, b.kind) && (
                   <p className="small req-off">คนที่จัดไว้ไม่ตรงกับกลุ่มที่เลือกตอนนี้ — กด "จัดใหม่" เพื่อใช้กลุ่มล่าสุด</p>
                 )}

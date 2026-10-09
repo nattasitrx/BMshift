@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { thaiDateLabel, weekday } from '../engine/dates';
+import { thaiDateLabel, thaiMonthLabel, weekday } from '../engine/dates';
 import { normalizeQueues } from '../engine/generate';
+import { changedMonths, describeChange } from '../engine/holidayCheck';
 import { seedState } from '../engine/seed';
 import { SLOT_LABEL, SLOTS, TEMPLATE_KIND_LABEL, type AppState, type Holiday, type Template, type TemplateKind } from '../engine/types';
 import { newId } from './api';
@@ -29,7 +30,17 @@ export function SettingsView({ state, commit }: Ctx) {
     const next = { ...clone(state), ...clone(d) };
     next.holidays.sort((a, b) => a.date.localeCompare(b.date));
     next.queues = normalizeQueues(next.queues, next.people.map((p) => p.id));
-    if (await commit(next)) setDirty(false);
+    if (await commit(next)) {
+      setDirty(false);
+      const before = new Set(changedMonths(state).map((c) => c.month));
+      const affected = changedMonths(next).filter((c) => !before.has(c.month));
+      if (affected.length) {
+        alert(
+          'วันหยุดเปลี่ยน กระทบเดือนที่จัดเวรไว้แล้ว — ไปกดจัดเวรเดือนนั้นใหม่:\n\n' +
+            affected.map((c) => `• ${thaiMonthLabel(c.month)}: ${describeChange(next, c)}`).join('\n'),
+        );
+      }
+    }
   };
 
   return (

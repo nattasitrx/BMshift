@@ -3,6 +3,7 @@ import { holidayMap, isOffDay } from '../engine/blocks';
 import { daysInMonth, shiftMonth, thaiDateLabel, thaiDayShort, thaiMonthLabel } from '../engine/dates';
 import { clearMonth, generateBest } from '../engine/generate';
 import { undoMonth, withHistory } from '../engine/history';
+import { describeChange, holidayChange } from '../engine/holidayCheck';
 import { findIssues, summarizeMonth } from '../engine/summary';
 import { SLOT_LABEL, type AppState, type Slot } from '../engine/types';
 import type { Ctx } from './App';
@@ -52,6 +53,7 @@ export function ScheduleView({ state, commit, requests, month }: Ctx) {
     }
     await commit(withHistory(state, next, month, by, ACTION_LABEL[action]));
   };
+  const holChange = holidayChange(state, month);
   const log = state.monthLog?.[month] ?? [];
   const lastLog = log[log.length - 1];
   const stages = new Set(record?.stages ?? (record ? ['extra', 'weekend', 'rest'] : []));
@@ -82,6 +84,15 @@ export function ScheduleView({ state, commit, requests, month }: Ctx) {
           🖨️ พิมพ์
         </button>
       </div>
+      {holChange && (
+        <div className="alert no-print">
+          <b>⚠️ วันหยุดของเดือนนี้เปลี่ยนหลังจากจัดเวรแล้ว</b>
+          <div className="small">{describeChange(state, holChange)}</div>
+          <div className="small">
+            กด ⚙️ จัดเวร… แล้วเลือก "จัดเสาร์–อาทิตย์และวันหยุด" (ตามด้วยจัดวันธรรมดา) หรือ "จัดทั้งหมดใหม่"
+          </div>
+        </div>
+      )}
       <div className="month-status no-print">
         <span className={stages.has('extra') ? 'st done' : 'st'}>เสริม</span>
         <span className={stages.has('weekend') ? 'st done' : 'st'}>เสาร์–อาทิตย์/วันหยุด</span>

@@ -2,6 +2,7 @@ import { detectBlocks, holidayMap, isOffDay, pickTemplate, templateCells, templa
 import { BIT, COUNTED, maskCost, popcount, type CostCtx } from './cost';
 import { addDays, dateRange, daysInMonth, monthOf, nthWeekdayOfMonth, thaiDateLabel, weekday } from './dates';
 import { mulberry32, randInt, shuffle, type Rng } from './rng';
+import { holidaySignature } from './holidayCheck';
 import { findIssues } from './summary';
 import {
   SLOTS,
@@ -713,6 +714,8 @@ export function generateMonth(
     record: {
       generatedAt: new Date().toISOString(),
       stages: doneStages,
+      // วันหยุดมีผลกับขั้นเสาร์–อาทิตย์/วันหยุด จัดขั้นอื่นซ้ำไม่ถือว่าอัปเดตวันหยุดแล้ว
+      holidaysUsed: doWeekend || !old ? holidaySignature(state.holidays, month) : old.holidaysUsed,
       notes,
       queuesBefore,
       queuesAfter: clone(q),

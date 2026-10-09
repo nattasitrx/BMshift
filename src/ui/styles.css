@@ -850,3 +850,17 @@ table {
 .st.done::before {
   content: '✓ ';
 }
+
+.alert {
+  border: 1px solid #f2b8b5;
+  background: var(--err-bg);
+  color: var(--err);
+  border-radius: 10px;
+  padding: 8px 12px;
+  margin: 6px 0;
+}
+
+.alert .small {
+  color: var(--ink);
+  margin-top: 2px;
+}

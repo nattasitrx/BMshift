@@ -4,6 +4,7 @@ import { daysInMonth, isWeekend, shiftMonth, weekday } from '../src/engine/dates
 import { arrangeFestival, listFestivalBlocks, removeFestival, setFestivalPerson } from '../src/engine/festival';
 import { clearMonth, defaultSmcDays, generateBest, generateMonth, takeFromQueue } from '../src/engine/generate';
 import { undoMonth, withHistory } from '../src/engine/history';
+import { changedMonths, describeChange, holidayChange } from '../src/engine/holidayCheck';
 import { seedState, SEED_HOLIDAYS, SEED_TEMPLATES } from '../src/engine/seed';
 import { findIssues, summarizeMonth } from '../src/engine/summary';
 import { SLOTS, type AppState, type ShiftRequest } from '../src/engine/types';
@@ -315,5 +316,45 @@ describe('จัดทีละขั้น / ล้าง / ย้อนกล�
     expect(u.queues).toEqual(base.queues);
     expect(u.undo?.['2026-12']).toBeUndefined();
     expect(u.monthLog!['2026-12'].map((e) => e.by)).toEqual(['หล้า', 'ปู']);
+  });
+});
+
+describe('เตือนเมื่อวันหยุดเปลี่ยนหลังจัดเวร', () => {
+  const gen = (s: AppState, mode: 'all' | 'rest' | 'weekend') => {
+    const r = generateMonth(s, [], '2026-12', { seed: 1, iterations: 5_000, mode });
+    return { ...s, days: r.days, queues: r.queues, months: { ...s.months, '2026-12': r.record } };
+  };
+
+  it('ไม่เตือนถ้าวันหยุดไม่เปลี่ยน และไม่เตือนข้อมูลเก่าที่ไม่ได้บันทึกไว้', () => {
+    const s = gen(seedState(), 'all');
+    expect(holidayChange(s, '2026-12')).toBeNull();
+    expect(holidayChange(s, '2026-11')).toBeNull();
+  });
+
+  it('เตือนเมื่อเพิ่ม/ลบวันหยุด และหายเมื่อจัดเสาร์–อาทิตย์ใหม่ (จัดแค่วันธรรมดาไม่พอ)', () => {
+    let s = gen(seedState(), 'all');
+    s = {
+      ...s,
+      holidays: [
+        ...s.holidays.filter((h) => h.date !== '2026-12-10'),
+        { date: '2026-12-11', name: 'วันหยุดพิเศษ' },
+      ],
+    };
+    expect(holidayChange(s, '2026-12')).toEqual({ month: '2026-12', added: ['2026-12-11'], removed: ['2026-12-10'] });
+    expect(changedMonths(s).map((c) => c.month)).toEqual(['2026-12']);
+    expect(describeChange(s, holidayChange(s, '2026-12')!)).toContain('วันหยุดพิเศษ');
+
+    s = gen(s, 'rest');
+    expect(holidayChange(s, '2026-12')).not.toBeNull();
+    s = gen(s, 'weekend');
+    expect(holidayChange(s, '2026-12')).toBeNull();
+    // 10–13 ธ.ค. กลายเป็นหยุดติดกัน (ศุกร์ 11 – อาทิตย์ 13)
+    expect(s.months['2026-12'].blocks.some((b) => b.kind === 'adjacent' && b.start === '2026-12-11')).toBe(true);
+  });
+
+  it('วันหยุดของเดือนถัดไปที่คร่อมมา (ปีใหม่) ก็นับว่ากระทบ', () => {
+    let s = gen(seedState(), 'all');
+    s = { ...s, holidays: [...s.holidays, { date: '2027-01-04', name: 'หยุดพิเศษปีใหม่', festival: 'newyear' as const }] };
+    expect(holidayChange(s, '2026-12')?.added).toEqual(['2027-01-04:newyear']);
   });
 });

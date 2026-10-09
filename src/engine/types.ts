@@ -116,6 +116,8 @@ export interface MonthRecord {
   generatedAt: string;
   /** ขั้นที่จัดแล้ว (ข้อมูลเก่าที่ไม่มีฟิลด์นี้ = จัดครบทุกขั้น) */
   stages?: Stage[];
+  /** วันหยุดที่ใช้ตอนจัด ('YYYY-MM-DD' หรือ 'YYYY-MM-DD:newyear') ใช้เตือนเมื่อวันหยุดเปลี่ยนภายหลัง */
+  holidaysUsed?: string[];
   /** สรุปแยกตามขั้น */
   notes?: Partial<Record<Stage, { info: string[]; warnings: string[] }>>;
   queuesBefore: Queues;
