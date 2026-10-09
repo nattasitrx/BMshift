@@ -1199,8 +1199,8 @@ table {
 
 .slip-page {
   display: grid;
-  grid-template-columns: repeat(2, 98mm);
-  grid-template-rows: repeat(4, 70mm);
+  grid-template-columns: repeat(3, 65mm);
+  grid-template-rows: repeat(5, 56mm);
   justify-content: center;
   break-after: page;
 }
@@ -1209,8 +1209,41 @@ table {
   break-after: auto;
 }
 
+/* ขนาดใบในหน้าพิมพ์ (บนจอใช้ .slip-screen) */
 .slip-page .slip {
-  height: 70mm;
+  height: 56mm;
+  padding: 2mm 2.5mm;
+  font-size: 7pt;
+}
+
+.slip-page .slip-head,
+.slip-page .slip-name,
+.slip-page .slip-total {
+  font-size: 7.5pt;
+}
+
+.slip-page .slip-name {
+  margin: 0.5mm 0 1mm;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.slip-page .slip-table {
+  font-size: 6.5pt;
+}
+
+.slip-page .slip-table td,
+.slip-page .slip-table th {
+  padding: 0 1mm;
+  line-height: 1.2;
+}
+
+.slip-page .slip.dense .slip-table {
+  font-size: 5.8pt;
+}
+
+.slip-page .slip.dense .slip-table td {
+  line-height: 1.05;
 }
 
 .pick-list {

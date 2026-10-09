@@ -1,19 +1,21 @@
 import { useState } from 'react';
 import { daysInMonth, thaiDateLabel, thaiMonthLabel } from '../engine/dates';
-import { printName } from '../engine/names';
 import { baht, paidSlots, slipFor, type Slip } from '../engine/pay';
 import type { AppState } from '../engine/types';
 import type { Ctx } from './App';
 import { Chip, getMe } from './common';
 
-// ใบเวรน้อย: ดูบนจอทีละคน / พิมพ์หลายคน (8 ใบต่อ A4 มีเส้นประไว้ตัด)
+// ใบเวรน้อย: ดูบนจอทีละคน / พิมพ์ทุกคน (15 ใบต่อ A4 มีเส้นประไว้ตัด)
 
 const MORNING_LABEL = { O: 'OPD', I: 'IPD', S: 'เสริม' } as const;
+/** A4 แนวตั้ง 3 คอลัมน์ × 5 แถว — 14 คนพอดีแผ่นเดียว */
+const PER_PAGE = 15;
 
 function SlipCard({ state, slip }: { state: AppState; slip: Slip }) {
   const p = state.people.find((x) => x.id === slip.personId);
   if (!p) return null;
-  const real = printName(p);
+  // ใบเวรน้อยส่งเลขา: ใช้ชื่อจริงเต็มตามที่กรอกไว้ (ไม่มี = ชื่อเล่น)
+  const real = p.fullName?.trim() || p.name;
   const paid = new Set(paidSlots(state));
   const withSmc = paid.has('SMC');
   // แสดงเฉพาะวันที่มีเวรที่นับค่าเวร
@@ -22,14 +24,13 @@ function SlipCard({ state, slip }: { state: AppState; slip: Slip }) {
     slots.filter((x): x is 'O' | 'I' | 'S' => (x === 'O' || x === 'I' || x === 'S') && paid.has(x));
   const total = (pred: (r: Slip['rows'][number]) => number) => rows.reduce((n, r) => n + pred(r), 0);
   return (
-    <div className={'slip' + (rows.length > 10 ? ' dense' : '')}>
+    <div className={'slip' + (rows.length > 7 ? ' dense' : '')}>
       <div className="slip-head">
         <b>ใบเวรน้อย</b>
         <span>เดือน{thaiMonthLabel(slip.month)}</span>
       </div>
       <div className="slip-name">
         ชื่อ <b>{real}</b>
-        {real !== p.name && <span> ({p.name})</span>}
       </div>
       {rows.length === 0 ? (
         <div className="slip-empty">ไม่มีเวรเดือนนี้</div>
@@ -80,7 +81,8 @@ export function SlipView({ state, month }: Ctx) {
   const active = state.people.filter((p) => p.active);
   const [id, setId] = useState(() => (active.some((p) => p.id === getMe()) ? getMe() : (active[0]?.id ?? '')));
   const slips = active.map((p) => slipFor(state, month, p.id));
-  const [picked, setPicked] = useState<Set<string>>(() => new Set(slips.filter((s) => s.rows.length).map((s) => s.personId)));
+  // ค่าเริ่มต้น: พิมพ์ทุกคน (เอาติ๊กบางคนออกได้)
+  const [picked, setPicked] = useState<Set<string>>(() => new Set(active.map((p) => p.id)));
   const toPrint = slips.filter((s) => picked.has(s.personId));
   const generated = !!state.months[month] || daysInMonth(month).some((d) => state.days[d]);
   const sum = toPrint.reduce((n, s) => n + s.total, 0);
@@ -138,7 +140,7 @@ export function SlipView({ state, month }: Ctx) {
           })}
         </div>
         <p className="small">
-          เลือก {toPrint.length} คน · รวม {baht(sum)} บาท · พิมพ์ได้ {Math.ceil(toPrint.length / 8) || 0} หน้า (A4 หน้าละ 8 ใบ)
+          เลือก {toPrint.length} คน · รวม {baht(sum)} บาท · พิมพ์ {Math.ceil(toPrint.length / PER_PAGE) || 0} แผ่น (A4 แผ่นละ {PER_PAGE} ใบ)
         </p>
         <button className="btn-primary wide" disabled={!toPrint.length} onClick={() => window.print()}>
           🖨️ พิมพ์ใบเวรน้อย {toPrint.length} คน
@@ -146,9 +148,9 @@ export function SlipView({ state, month }: Ctx) {
       </section>
 
       <div className="print-only">
-        {Array.from({ length: Math.ceil(toPrint.length / 8) }, (_, page) => (
+        {Array.from({ length: Math.ceil(toPrint.length / PER_PAGE) }, (_, page) => (
           <div key={page} className="slip-page">
-            {toPrint.slice(page * 8, page * 8 + 8).map((s) => (
+            {toPrint.slice(page * PER_PAGE, page * PER_PAGE + PER_PAGE).map((s) => (
               <SlipCard key={s.personId} state={state} slip={s} />
             ))}
           </div>
