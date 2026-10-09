@@ -8,11 +8,12 @@ import {
   type AppState,
   type BlockRecord,
   type DayAssign,
+  type GenerateMode,
   type MonthRecord,
   type QueueKey,
   type Queues,
   type ShiftRequest,
-  type Slot,
+  type Stage,
   type Template,
   type WeekendRole,
 } from './types';
@@ -24,6 +25,64 @@ export const QUEUE_KEYS: QueueKey[] = [
 export interface GenerateOptions {
   seed?: number;
   iterations?: number;
+  /** all = จัดใหม่ทั้งเดือน, extra = เฉพาะเวรเสริม, weekend = เสาร์–อาทิตย์/วันหยุด, rest = วันธรรมดา+SMC */
+  mode?: GenerateMode;
+}
+
+const STAGE_QUEUES: Record<Stage, QueueKey[]> = {
+  extra: ['extra'],
+  weekend: ['adjacent', 'midweek', 'twoWeekend', 'noWeekend'],
+  rest: ['totalExtra', 'nightExtra', 'smc'],
+};
+const STAGE_ORDER: Stage[] = ['extra', 'weekend', 'rest'];
+const isFestival = (k: string) => k === 'newyear' || k === 'songkran';
+
+export function stagesOf(rec: MonthRecord | undefined): Stage[] {
+  if (!rec) return [];
+  return rec.stages ?? STAGE_ORDER;
+}
+
+/** ล้างเวรของเดือน (ยกเว้นวันที่เป็นของช่วงหยุดที่เดือนก่อนจัดไว้) แล้วใส่ปีใหม่/สงกรานต์ที่จัดแยกไว้กลับ */
+export function clearedDays(state: AppState, month: string): Record<string, DayAssign> {
+  const days = clone(state.days);
+  const mDays = daysInMonth(month);
+  const kept = new Set<string>();
+  for (const [m, rec] of Object.entries(state.months)) {
+    if (m === month) continue;
+    for (const b of rec.blocks) {
+      if (isFestival(b.kind)) continue;
+      for (const d of dateRange(b.start, b.end)) if (monthOf(d) === month) kept.add(d);
+    }
+  }
+  const removed = new Set<string>(mDays.filter((d) => !kept.has(d)));
+  for (const b of state.months[month]?.blocks ?? []) {
+    for (const d of dateRange(b.start, b.end)) if (monthOf(d) !== month) removed.add(d);
+  }
+  for (const d of removed) delete days[d];
+  for (const f of state.festivals ?? []) {
+    const t = state.templates.find((x) => x.id === f.templateId);
+    if (!t) continue;
+    for (const c of templateCells({ eve: f.eve, days: dateRange(f.start, f.end) }, t)) {
+      const id = f.people[c.letter];
+      if (id && removed.has(c.date)) days[c.date] = { ...(days[c.date] ?? {}), [c.slot]: id };
+    }
+  }
+  return days;
+}
+
+/** ล้างทั้งเดือน: เวร บันทึกการจัด และคืนคิวไปก่อนเดือนนี้ (ถ้าเป็นเดือนล่าสุดที่จัด) */
+export function clearMonth(state: AppState, month: string): AppState {
+  const rec = state.months[month];
+  const days = clearedDays(state, month);
+  const months = { ...state.months };
+  delete months[month];
+  const latest = Object.keys(state.months).sort().pop();
+  return {
+    ...state,
+    days,
+    months,
+    queues: rec && latest === month ? clone(rec.queuesBefore) : state.queues,
+  };
 }
 
 export interface GenerateResult {
@@ -82,48 +141,65 @@ export function generateMonth(
   opts: GenerateOptions = {},
 ): GenerateResult {
   const rng: Rng = mulberry32(opts.seed ?? Date.now());
-  const warnings: string[] = [];
-  const info: string[] = [];
+  const mode: GenerateMode = opts.mode ?? 'all';
+  const old = state.months[month];
+  const oldStages = stagesOf(old);
+  // จัดเสาร์–อาทิตย์โดยเก็บเวรเสริมที่จัดไว้ก่อนแล้ว
+  const keepExtra = mode === 'weekend' && oldStages.includes('extra');
+  const runs: Stage[] = mode === 'all' ? STAGE_ORDER : mode === 'weekend' && !keepExtra ? ['extra', 'weekend'] : [mode];
+  const notes: NonNullable<MonthRecord['notes']> =
+    mode === 'all' ? {} : clone(old?.notes ?? (old ? { weekend: { info: old.info, warnings: [] } } : {}));
+  if (mode === 'weekend') delete notes.rest;
+  for (const st of runs) notes[st] = { info: [], warnings: [] };
+  let stage: Stage = runs[0];
+  const note = (m: string) => notes[stage]!.info.push(m);
+  const warn = (m: string) => notes[stage]!.warnings.push(m);
   const allIds = state.people.map((p) => p.id);
   const active = state.people.filter((p) => p.active);
   const activeIds = active.map((p) => p.id);
   const activeSet = new Set(activeIds);
   const isActive = (id: string) => activeSet.has(id);
   const nameOf = (id: string) => state.people.find((p) => p.id === id)?.name ?? id;
-  const q = normalizeQueues(clone(state.months[month]?.queuesBefore ?? state.queues), allIds);
-  const queuesBefore = clone(q);
+  // คิว: ขั้นที่จัดรอบนี้เริ่มจากคิวก่อนเดือนนี้ ขั้นอื่นใช้คิวหลังจัดครั้งก่อน
+  const queuesBefore = normalizeQueues(clone(old?.queuesBefore ?? state.queues), allIds);
+  const q = mode === 'all' || !old ? clone(queuesBefore) : normalizeQueues(clone(old.queuesAfter), allIds);
+  for (const st of runs) for (const k of STAGE_QUEUES[st]) q[k] = clone(queuesBefore[k]);
   const holidays = holidayMap(state.holidays);
   const mDays = daysInMonth(month);
   const first = mDays[0];
   const last = mDays[mDays.length - 1];
+  const oldExtra = new Map((old?.blocks ?? []).filter((b) => b.kind === 'weekend' && b.extraId).map((b) => [b.start, b.extraId!]));
 
-  // ---- 1. ล้างเดือนนี้ (ยกเว้นวันที่เป็นของช่วงหยุดที่เดือนก่อนจัดไว้แล้ว) ----
-  const days = clone(state.days);
-  const isFestival = (k: string) => k === 'newyear' || k === 'songkran';
-  const kept = new Set<string>();
-  for (const [m, rec] of Object.entries(state.months)) {
-    if (m === month) continue;
-    for (const b of rec.blocks) {
-      if (isFestival(b.kind)) continue;
-      for (const d of dateRange(b.start, b.end)) if (monthOf(d) === month) kept.add(d);
+  // ---- 1. ล้างส่วนที่จะจัดใหม่ ----
+  let days: Record<string, DayAssign>;
+  if (mode === 'all' || mode === 'weekend') {
+    days = clearedDays(state, month);
+  } else {
+    days = clone(state.days);
+    // คืนก่อนวันหยุด (รวมปีใหม่/สงกรานต์) เป็นของแพทเทิร์น ไม่ล้าง
+    const eves = new Set([...(old?.blocks ?? []), ...(state.festivals ?? [])].map((b) => b.eve));
+    for (const d of mDays) {
+      const a = days[d];
+      if (!a) continue;
+      const next = { ...a };
+      if (mode === 'rest') {
+        delete next.SMC;
+        if (!isOffDay(d, holidays) && !eves.has(d)) {
+          delete next.PM;
+          delete next.N;
+        }
+      }
+      days[d] = next;
     }
-  }
-  const old = state.months[month];
-  const removed = new Set<string>(mDays.filter((d) => !kept.has(d)));
-  if (old) {
-    for (const b of old.blocks) {
-      for (const d of dateRange(b.start, b.end)) if (monthOf(d) !== month) removed.add(d);
-    }
-  }
-  for (const d of removed) delete days[d];
-  // ปีใหม่/สงกรานต์ที่จัดแยกไว้แล้ว ใส่กลับเป็นเวรตายตัว
-  const festivals = state.festivals ?? [];
-  for (const f of festivals) {
-    const t = state.templates.find((x) => x.id === f.templateId);
-    if (!t) continue;
-    for (const c of templateCells({ eve: f.eve, days: dateRange(f.start, f.end) }, t)) {
-      const id = f.people[c.letter];
-      if (id && removed.has(c.date)) days[c.date] = { ...(days[c.date] ?? {}), [c.slot]: id };
+    if (mode === 'extra') {
+      for (const b of detectBlocks(month, state.holidays).filter((x) => x.kind === 'weekend')) {
+        for (const d of b.days) {
+          if (!days[d]?.S) continue;
+          const next = { ...days[d] };
+          delete next.S;
+          days[d] = next;
+        }
+      }
     }
   }
 
@@ -181,9 +257,11 @@ export function generateMonth(
   };
 
   const blocks = detectBlocks(month, state.holidays);
-  const records: BlockRecord[] = [];
+  const records: BlockRecord[] = mode === 'extra' || mode === 'rest' ? clone(old?.blocks ?? []) : [];
   const holidayUsed = new Set<string>();
   const weekendExempt = new Set<string>();
+  const festivals = state.festivals ?? [];
+  const doWeekend = runs.includes('weekend');
 
   // ---- 2. ช่วงวันหยุดราชการ (ใช้คิวของแต่ละประเภท) ----
   // เทศกาลมาก่อน เพื่อให้คิววันหยุดอื่นเลี่ยงคนที่อยู่เทศกาลเดือนนี้แล้ว
@@ -191,24 +269,25 @@ export function generateMonth(
     ...blocks.filter((x) => isFestival(x.kind)),
     ...blocks.filter((x) => x.kind !== 'weekend' && !isFestival(x.kind)),
   ];
-  for (const b of holidayBlocks) {
+  if (doWeekend) stage = 'weekend';
+  for (const b of doWeekend ? holidayBlocks : []) {
     if (b.kind === 'newyear' || b.kind === 'songkran') {
       const name = b.kind === 'newyear' ? 'ปีใหม่' : 'สงกรานต์';
       const range = `${thaiDateLabel(b.start)} – ${thaiDateLabel(b.end)}`;
       const f = festivals.find((x) => x.kind === b.kind && x.start <= b.end && x.end >= b.start);
       if (!f) {
-        warnings.push(`ยังไม่ได้จัด${name} (${range}) — จัดในแท็บ "เทศกาล" ก่อน แล้วค่อยจัดเดือนนี้`);
+        warn(`ยังไม่ได้จัด${name} (${range}) — จัดในแท็บ "เทศกาล" ก่อน แล้วค่อยจัดเดือนนี้`);
         continue;
       }
       const ids = [...new Set(Object.values(f.people))];
       ids.forEach((id) => holidayUsed.add(id));
       if (state.settings.festivalCountsAsWeekend) ids.forEach((id) => weekendExempt.add(id));
-      info.push(`${name} (${range}) จัดแยกไว้แล้ว: ${ids.map(nameOf).join(', ')} — นำมาหักออกจากยอดเวรแล้ว`);
+      note(`${name} (${range}) จัดแยกไว้แล้ว: ${ids.map(nameOf).join(', ')} — นำมาหักออกจากยอดเวรแล้ว`);
       continue;
     }
     const { template, error } = pickTemplate(b, state, active.length);
     if (!template) {
-      warnings.push(error!);
+      warn(error!);
       continue;
     }
     const letters = templateLetters(template);
@@ -222,15 +301,15 @@ export function generateMonth(
     ]);
     const label = `${template.label} (${thaiDateLabel(b.start)} – ${thaiDateLabel(b.end)})`;
     if (picked.length < letters.length) {
-      warnings.push(`คนไม่พอสำหรับ ${label}`);
+      warn(`คนไม่พอสำหรับ ${label}`);
       continue;
     }
-    for (const id of picked) if (!free(id)) warnings.push(`${nameOf(id)} ขอไม่ว่างในช่วง ${label} แต่จำเป็นต้องใช้`);
+    for (const id of picked) if (!free(id)) warn(`${nameOf(id)} ขอไม่ว่างในช่วง ${label} แต่จำเป็นต้องใช้`);
     const people = assignLetters(b, template, letters, picked);
     writeCells(templateCells(b, template), people);
     picked.forEach((id) => holidayUsed.add(id));
     if (b.kind === 'adjacent') picked.forEach((id) => weekendExempt.add(id));
-    info.push(`${label}: ${letters.map((l) => `${l}=${nameOf(people[l])}`).join(', ')}`);
+    note(`${label}: ${letters.map((l) => `${l}=${nameOf(people[l])}`).join(', ')}`);
     records.push({ start: b.start, end: b.end, eve: b.eve, kind: b.kind, templateId: template.id, people });
   }
 
@@ -260,21 +339,28 @@ export function generateMonth(
   }
 
   // ---- 3. เสาร์–อาทิตย์ปกติ ----
-  const weekendRoles: Record<string, WeekendRole[]> = {};
+  const weekendRoles: Record<string, WeekendRole[]> = doWeekend ? {} : clone(old?.weekendRoles ?? {});
   const wkBlocks = blocks.filter((x) => x.kind === 'weekend');
   const wt = state.templates.find((t) => t.kind === 'weekend' && t.days === 2);
-  if (wkBlocks.length && !wt) warnings.push('ไม่มีแพทเทิร์นเสาร์–อาทิตย์ปกติ');
-  if (wkBlocks.length && wt) {
+  if (wkBlocks.length && !wt && (doWeekend || mode === 'extra')) warn('ไม่มีแพทเทิร์นเสาร์–อาทิตย์ปกติ');
+  // เวรเสริมที่จัดไว้ก่อน: ใส่กลับก่อนจัด A/B/C เพื่อไม่ให้คนเดียวกันได้ตำแหน่งในสุดสัปดาห์นั้น
+  if (doWeekend && keepExtra && wt) {
+    for (const b of wkBlocks) {
+      const id = oldExtra.get(b.start);
+      if (id) writeCells(templateCells(b, wt), {}, id);
+    }
+  }
+  if (doWeekend && wkBlocks.length && wt) {
     const roles = templateLetters(wt);
     const R = roles.length;
     const slots = wkBlocks.length * R;
     const pool = activeIds.filter((id) => !weekendExempt.has(id));
-    if (weekendExempt.size) info.push(`อยู่หยุดติดกันแล้ว ไม่ต้องอยู่ ส-อา: ${[...weekendExempt].map(nameOf).join(', ')}`);
+    if (weekendExempt.size) note(`อยู่หยุดติดกันแล้ว ไม่ต้องอยู่ ส-อา: ${[...weekendExempt].map(nameOf).join(', ')}`);
     let list = [...pool];
     if (pool.length > slots) {
       const skip = takeFromQueue(q.noWeekend, pool.length - slots, [(id) => pool.includes(id)]);
       list = pool.filter((id) => !skip.includes(id));
-      info.push(`ไม่อยู่ ส-อา เดือนนี้ (ตามคิว): ${skip.map(nameOf).join(', ')}`);
+      note(`ไม่อยู่ ส-อา เดือนนี้ (ตามคิว): ${skip.map(nameOf).join(', ')}`);
     } else if (pool.length < slots && pool.length > 0) {
       let need = slots - pool.length;
       const doubles: string[] = [];
@@ -290,9 +376,9 @@ export function generateMonth(
         need -= take.length;
       }
       list.push(...doubles);
-      info.push(`อยู่ ส-อา 2 รอบ (คิว 2 wk): ${doubles.map(nameOf).join(', ')}`);
+      note(`อยู่ ส-อา 2 รอบ (คิว 2 wk): ${doubles.map(nameOf).join(', ')}`);
     }
-    if (list.length < slots) warnings.push(`คนไม่พอสำหรับเสาร์–อาทิตย์ (ต้องการ ${slots} ได้ ${list.length})`);
+    if (list.length < slots) warn(`คนไม่พอสำหรับเสาร์–อาทิตย์ (ต้องการ ${slots} ได้ ${list.length})`);
 
     const arr = solveWeekends(wkBlocks, wt, roles, list);
     wkBlocks.forEach((b, w) => {
@@ -308,10 +394,34 @@ export function generateMonth(
     });
 
     // เวรเสริมจากคิว คนละ 1 สุดสัปดาห์
-    if (wt.rows.some((row) => row.includes('*'))) {
+    if (keepExtra) {
+      for (const b of wkBlocks) {
+        const rec = records.find((r) => r.start === b.start)!;
+        rec.extraId = oldExtra.get(b.start);
+      }
+    } else if (wt.rows.some((row) => row.includes('*'))) {
+      stage = 'extra';
+      assignExtras((w) => new Set(arr.slice(w * R, w * R + R)));
+      stage = 'weekend';
+    }
+  }
+
+  // เฉพาะเวรเสริม: ไม่แตะเวรอื่น
+  if (mode === 'extra' && wt && wkBlocks.length) {
+    assignExtras((w) => {
+      const b = wkBlocks[w];
+      const ids = new Set<string>();
+      for (const d of [b.eve, ...b.days]) for (const s of SLOTS) if (days[d]?.[s]) ids.add(days[d]![s]!);
+      return ids;
+    });
+  }
+
+  function assignExtras(inPatternOf: (w: number) => Set<string>) {
+    if (!wt) return;
+    {
       const masks = buildMasks();
       wkBlocks.forEach((b, w) => {
-        const inPattern = new Set(arr.slice(w * R, w * R + R));
+        const inPattern = inPatternOf(w);
         const free = (id: string) => {
           if (!isActive(id) || inPattern.has(id)) return false;
           const m = masks.get(id)!;
@@ -320,12 +430,16 @@ export function generateMonth(
         };
         const [extraId] = takeFromQueue(q.extra, 1, [free, (id) => isActive(id) && !inPattern.has(id)]);
         if (!extraId) {
-          warnings.push(`หาเวรเสริมไม่ได้ ${thaiDateLabel(b.start)}`);
+          warn(`หาเวรเสริมไม่ได้ ${thaiDateLabel(b.start)}`);
           return;
         }
-        if (!free(extraId)) warnings.push(`${nameOf(extraId)} ได้เวรเสริม ${thaiDateLabel(b.start)} แม้ติดเงื่อนไข`);
+        if (!free(extraId)) warn(`${nameOf(extraId)} ได้เวรเสริม ${thaiDateLabel(b.start)} แม้ติดเงื่อนไข`);
         writeCells(templateCells(b, wt), {}, extraId);
-        const rec = records.find((r) => r.start === b.start)!;
+        let rec = records.find((r) => r.start === b.start);
+        if (!rec) {
+          rec = { start: b.start, end: b.end, eve: b.eve, kind: 'weekend', templateId: wt.id, people: {} };
+          records.push(rec);
+        }
         rec.extraId = extraId;
         for (const d of b.days) {
           const m = masks.get(extraId)!;
@@ -415,13 +529,21 @@ export function generateMonth(
     return best;
   }
 
+  // ขั้นที่จัดแล้วหลังรอบนี้
+  const doneStages = STAGE_ORDER.filter(
+    (st) => runs.includes(st) || (mode !== 'all' && oldStages.includes(st) && !(mode === 'weekend' && st === 'rest')),
+  );
+
   // ---- 4. วันธรรมดา: บ่าย/ดึก เฉลี่ยยอดด้วย simulated annealing ----
-  {
+  const doRest = runs.includes('rest');
+  if (doRest) stage = 'rest';
+  if (doRest && !doneStages.includes('weekend')) warn('ยังไม่ได้จัดเสาร์–อาทิตย์/วันหยุด — ยอดเวรจะยังไม่สมบูรณ์');
+  if (doRest) {
     const masks = buildMasks();
     for (const d of mDays) {
-      if (isOffDay(d, holidays)) {
+      if (isOffDay(d, holidays) && doneStages.includes('weekend')) {
         for (const s of ['O', 'I', 'PM', 'N'] as const) {
-          if (!days[d]?.[s]) warnings.push(`${thaiDateLabel(d)} ช่อง ${s} ยังไม่มีคน`);
+          if (!days[d]?.[s]) warn(`${thaiDateLabel(d)} ช่อง ${s} ยังไม่มีคน`);
         }
       }
     }
@@ -442,11 +564,11 @@ export function generateMonth(
     const nightPlus = new Set(takeFromQueue(q.nightExtra, NT % A, [isActive]));
     const target = activeIds.map((id) => Math.floor(T / A) + (totalPlus.has(id) ? 1 : 0));
     const nTarget = activeIds.map((id) => Math.floor(NT / A) + (nightPlus.has(id) ? 1 : 0));
-    info.push(
+    note(
       `เวรรวม ${T} เวร: คนละ ${Math.floor(T / A)}` +
         (totalPlus.size ? ` (+1: ${[...totalPlus].map(nameOf).join(', ')})` : ''),
     );
-    info.push(
+    note(
       `ดึก ${NT} เวร: คนละ ${Math.floor(NT / A)}` + (nightPlus.size ? ` (+1: ${[...nightPlus].map(nameOf).join(', ')})` : ''),
     );
 
@@ -558,7 +680,7 @@ export function generateMonth(
 
   // ---- 5. SMC ตามคิว (ไม่ใช่คนเดียวกับบ่าย/ดึกของวันนั้น) ----
   const smcDays = old?.smcDays ?? defaultSmcDays(month, state.holidays);
-  {
+  if (doRest) {
     const masks = buildMasks();
     for (const d of smcDays) {
       const i = idx.get(d)!;
@@ -570,7 +692,7 @@ export function generateMonth(
       const relaxed = (id: string) => isActive(id) && !isOff(id, d) && !(masks.get(id)![i] & (BIT.PM | BIT.N));
       const [id] = takeFromQueue(q.smc, 1, [strict, relaxed]);
       if (!id) {
-        warnings.push(`หาคนอยู่ SMC ${thaiDateLabel(d)} ไม่ได้`);
+        warn(`หาคนอยู่ SMC ${thaiDateLabel(d)} ไม่ได้`);
         continue;
       }
       days[d] = { ...(days[d] ?? {}), SMC: id };
@@ -578,22 +700,27 @@ export function generateMonth(
     }
   }
 
-  for (const issue of findIssues(days, state.people, requests, month, state.holidays)) {
-    if (issue.level === 'error') warnings.push(`${thaiDateLabel(issue.date)} ${issue.message}`);
-  }
+  // ข้อผิดพลาดจากการตรวจทั้งเดือน เก็บแยกไว้ ไม่ปนกับขั้นที่ไม่ได้จัดรอบนี้
+  const checks = findIssues(days, state.people, requests, month, state.holidays)
+    .filter((i) => i.level === 'error')
+    .map((i) => `${thaiDateLabel(i.date)} ${i.message}`);
+  const flat = (k: 'info' | 'warnings') => STAGE_ORDER.flatMap((st) => notes[st]?.[k] ?? []);
+  for (const st of STAGE_ORDER) if (notes[st]) notes[st]!.warnings = notes[st]!.warnings.filter((w) => !checks.includes(w));
 
   return {
     days,
     queues: q,
     record: {
       generatedAt: new Date().toISOString(),
+      stages: doneStages,
+      notes,
       queuesBefore,
       queuesAfter: clone(q),
       blocks: records.sort((a, b) => a.start.localeCompare(b.start)),
       smcDays,
       weekendRoles,
-      info,
-      warnings,
+      info: flat('info'),
+      warnings: [...flat('warnings'), ...checks],
     },
   };
 }
@@ -626,10 +753,11 @@ export function generateBest(
   month: string,
   tries = 4,
   seed = Date.now(),
+  mode: GenerateMode = 'all',
 ): GenerateResult {
   let best: { r: GenerateResult; score: number } | undefined;
   for (let k = 0; k < tries; k++) {
-    const r = generateMonth(state, requests, month, { seed: seed + k * 7919 });
+    const r = generateMonth(state, requests, month, { seed: seed + k * 7919, mode });
     const issues = findIssues(r.days, state.people, requests, month, state.holidays);
     const errors = issues.filter((i) => i.level === 'error').length;
     const warns = issues.length - errors;

@@ -4,17 +4,7 @@ import { daysInMonth, thaiDateLabel, thaiMonthLabel, weekday } from '../engine/d
 import type { ShiftRequest } from '../engine/types';
 import { addRequest, deleteRequest, newId } from './api';
 import type { Ctx } from './App';
-import { Chip } from './common';
-
-const ME_KEY = 'bmshift:me';
-
-function getMe(): string {
-  try {
-    return localStorage.getItem(ME_KEY) ?? '';
-  } catch {
-    return '';
-  }
-}
+import { Chip, getMe, saveMe } from './common';
 
 export function RequestsView({ state, mode, requests, reloadRequests, month }: Ctx) {
   const [me, setMeState] = useState(getMe);
@@ -28,11 +18,7 @@ export function RequestsView({ state, mode, requests, reloadRequests, month }: C
 
   const setMe = (id: string) => {
     setMeState(id);
-    try {
-      localStorage.setItem(ME_KEY, id);
-    } catch {
-      // ignore
-    }
+    saveMe(id);
   };
 
   const toggle = async (date: string) => {

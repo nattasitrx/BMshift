@@ -42,6 +42,7 @@ export function maskCost(m: number[], c: CostCtx): number {
       continue;
     }
     if (c.off.has(i)) cost += HARD;
+    if (popcount(x & MORNING) > 1) cost += HARD;
     const pm = (x & BIT.PM) !== 0;
     const nt = (x & BIT.N) !== 0;
     if (pm && nt && !c.canDouble) cost += HARD;

@@ -108,8 +108,16 @@ export type FestivalKind = 'newyear' | 'songkran';
 
 export type WeekendRole = 'A' | 'B' | 'C';
 
+/** ขั้นการจัดเวร: เสริม → เสาร์–อาทิตย์/วันหยุด → วันธรรมดา+SMC */
+export type Stage = 'extra' | 'weekend' | 'rest';
+export type GenerateMode = Stage | 'all';
+
 export interface MonthRecord {
   generatedAt: string;
+  /** ขั้นที่จัดแล้ว (ข้อมูลเก่าที่ไม่มีฟิลด์นี้ = จัดครบทุกขั้น) */
+  stages?: Stage[];
+  /** สรุปแยกตามขั้น */
+  notes?: Partial<Record<Stage, { info: string[]; warnings: string[] }>>;
   queuesBefore: Queues;
   queuesAfter: Queues;
   blocks: BlockRecord[];
@@ -138,5 +146,21 @@ export interface AppState {
   festivals: FestivalRecord[];
   /** ใครอยู่ปีใหม่ ใครอยู่สงกรานต์ (เลือกเองในแท็บเทศกาล) */
   festivalGroup: Record<string, FestivalKind>;
+  /** ประวัติว่าใครกดจัด/ล้าง/ย้อนกลับ แต่ละเดือน */
+  monthLog?: Record<string, LogEntry[]>;
+  /** สำเนาก่อนการกดครั้งล่าสุดของแต่ละเดือน (สำหรับปุ่มย้อนกลับ) */
+  undo?: Record<string, UndoSnapshot>;
   days: Record<string, DayAssign>;
+}
+
+export interface LogEntry {
+  at: string;
+  by: string;
+  action: string;
+}
+
+export interface UndoSnapshot extends LogEntry {
+  days: Record<string, DayAssign | null>;
+  record: MonthRecord | null;
+  queues: Queues;
 }

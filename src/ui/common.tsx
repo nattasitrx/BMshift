@@ -38,3 +38,22 @@ export function Modal({ title, onClose, children }: { title: string; onClose: ()
 }
 
 export const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
+
+const ME_KEY = 'bmshift:me';
+
+/** ชื่อที่เลือกไว้ในเครื่องนี้ (ใช้ทั้งแจ้งวันและบันทึกว่าใครกดจัดเวร) */
+export function getMe(): string {
+  try {
+    return localStorage.getItem(ME_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+export function saveMe(id: string) {
+  try {
+    localStorage.setItem(ME_KEY, id);
+  } catch {
+    // ignore
+  }
+}

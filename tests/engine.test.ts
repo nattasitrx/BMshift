@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { detectBlocks, templateLetters } from '../src/engine/blocks';
 import { daysInMonth, isWeekend, shiftMonth, weekday } from '../src/engine/dates';
 import { arrangeFestival, listFestivalBlocks, removeFestival, setFestivalPerson } from '../src/engine/festival';
-import { defaultSmcDays, generateMonth, takeFromQueue } from '../src/engine/generate';
+import { clearMonth, defaultSmcDays, generateBest, generateMonth, takeFromQueue } from '../src/engine/generate';
+import { undoMonth, withHistory } from '../src/engine/history';
 import { seedState, SEED_HOLIDAYS, SEED_TEMPLATES } from '../src/engine/seed';
 import { findIssues, summarizeMonth } from '../src/engine/summary';
 import { SLOTS, type AppState, type ShiftRequest } from '../src/engine/types';
@@ -244,5 +245,75 @@ describe('festivals (ปีใหม่/สงกรานต์ จัดแย
     const removed = removeFestival(moved, moved.festivals[0]);
     expect(removed.festivals).toHaveLength(0);
     expect(removed.days['2026-12-31']?.O).toBeUndefined();
+  });
+});
+
+describe('จัดทีละขั้น / ล้าง / ย้อนกลับ', () => {
+  const run = (s: AppState, mode: 'all' | 'extra' | 'weekend' | 'rest', month = '2026-12') => {
+    const r = generateBest(s, [], month, 3, 11, mode);
+    return { ...s, days: r.days, queues: r.queues, months: { ...s.months, [month]: r.record } };
+  };
+  const weekendDays = ['2026-12-12', '2026-12-13', '2026-12-19', '2026-12-20', '2026-12-26', '2026-12-27'];
+
+  it('เสริม → เสาร์อาทิตย์ → ที่เหลือ เก็บผลของขั้นก่อนไว้', () => {
+    let s = arrangeAll(seedState());
+    s = run(s, 'extra');
+    const extras = weekendDays.map((d) => s.days[d]?.S);
+    expect(extras.every(Boolean)).toBe(true);
+    expect(s.months['2026-12'].stages).toEqual(['extra']);
+    // ยังไม่มีเวรอื่นในวันเสาร์อาทิตย์
+    expect(s.days['2026-12-12'].O).toBeUndefined();
+
+    s = run(s, 'weekend');
+    expect(weekendDays.map((d) => s.days[d]?.S)).toEqual(extras);
+    for (const b of s.months['2026-12'].blocks.filter((x) => x.kind === 'weekend')) {
+      expect(Object.values(b.people)).not.toContain(b.extraId);
+    }
+    expect(s.days['2026-12-15']?.PM).toBeUndefined(); // วันธรรมดายังว่าง
+    expect(s.months['2026-12'].stages).toEqual(['extra', 'weekend']);
+    const weekendSnapshot = JSON.stringify(weekendDays.map((d) => s.days[d]));
+
+    s = run(s, 'rest');
+    expect(JSON.stringify(weekendDays.map((d) => ({ ...s.days[d], SMC: undefined })))).toEqual(
+      JSON.stringify(JSON.parse(weekendSnapshot).map((a: object) => ({ ...a, SMC: undefined }))),
+    );
+    expect(s.months['2026-12'].stages).toEqual(['extra', 'weekend', 'rest']);
+    expect(findIssues(s.days, s.people, [], '2026-12', s.holidays).filter((i) => i.level === 'error')).toEqual([]);
+    const totals = summarizeMonth(s, '2026-12').map((r) => r.total);
+    expect(Math.max(...totals) - Math.min(...totals)).toBeLessThanOrEqual(1);
+    // ปีใหม่ยังอยู่ครบ รวมคืนก่อนวันหยุด
+    const ny = s.festivals.find((f) => f.kind === 'newyear')!;
+    expect(s.days[ny.eve].PM).toBe(ny.people.A);
+  });
+
+  it('จัดเฉพาะเสริมหลังจัดครบแล้ว เปลี่ยนแค่ช่องเสริม', () => {
+    let s = run(arrangeAll(seedState()), 'all');
+    const before = s.days;
+    s = run(s, 'extra');
+    for (const d of daysInMonth('2026-12')) {
+      expect({ ...s.days[d], S: undefined }).toEqual({ ...before[d], S: undefined });
+    }
+  });
+
+  it('ล้างเดือนคืนคิวและเวรทั้งหมด แต่เก็บปีใหม่และวันที่ของเดือนก่อน', () => {
+    const base = arrangeAll(seedState());
+    const s = run(base, 'all');
+    const c = clearMonth(s, '2026-12');
+    expect(c.months['2026-12']).toBeUndefined();
+    expect(c.queues).toEqual(base.queues);
+    expect(c.days['2026-12-15']).toBeUndefined();
+    expect(c.days['2026-12-31'].O).toBe(base.days['2026-12-31'].O);
+  });
+
+  it('ย้อนกลับคืนสภาพก่อนการกดครั้งล่าสุด และบันทึกว่าใครทำ', () => {
+    const base = arrangeAll(seedState());
+    const s = withHistory(base, run(base, 'all'), '2026-12', 'หล้า', 'จัดทั้งหมด');
+    expect(s.monthLog!['2026-12']).toMatchObject([{ by: 'หล้า', action: 'จัดทั้งหมด' }]);
+    const u = undoMonth(s, '2026-12', 'ปู');
+    expect(u.days).toEqual(base.days);
+    expect(u.months).toEqual(base.months);
+    expect(u.queues).toEqual(base.queues);
+    expect(u.undo?.['2026-12']).toBeUndefined();
+    expect(u.monthLog!['2026-12'].map((e) => e.by)).toEqual(['หล้า', 'ปู']);
   });
 });

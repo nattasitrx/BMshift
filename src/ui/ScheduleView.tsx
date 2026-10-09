@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react';
 import { holidayMap, isOffDay } from '../engine/blocks';
 import { daysInMonth, shiftMonth, thaiDateLabel, thaiDayShort, thaiMonthLabel } from '../engine/dates';
-import { generateBest } from '../engine/generate';
+import { clearMonth, generateBest } from '../engine/generate';
+import { undoMonth, withHistory } from '../engine/history';
 import { findIssues, summarizeMonth } from '../engine/summary';
-import { SLOT_LABEL, type Slot } from '../engine/types';
+import { SLOT_LABEL, type AppState, type Slot } from '../engine/types';
 import type { Ctx } from './App';
 import { Chip, clone, Modal } from './common';
+import { ACTION_LABEL, formatWhen, GenerateDialog, type MonthAction } from './GenerateDialog';
 
 type Col = Slot | 'SMC';
 const COLS: Col[] = ['O', 'I', 'S', 'PM', 'N', 'SMC'];
@@ -13,7 +15,7 @@ const ROLE_LOAD: Record<string, string> = { A: 'A (3 เวร)', B: 'B (3 เ�
 
 export function ScheduleView({ state, commit, requests, month }: Ctx) {
   const [edit, setEdit] = useState<{ date: string; col: Col } | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [dialog, setDialog] = useState(false);
   const people = new Map(state.people.map((p) => [p.id, p]));
   const hol = holidayMap(state.holidays);
   const days = daysInMonth(month);
@@ -30,27 +32,29 @@ export function ScheduleView({ state, commit, requests, month }: Ctx) {
     reqByDate.set(r.date, e);
   }
 
-  const generate = async () => {
-    const later = Object.keys(state.months).filter((m) => m > month && !state.months[m].info.some((i) => i.startsWith('นำเข้า')));
-    const msg = [
-      record ? `จัดเวร ${thaiMonthLabel(month)} ใหม่ทั้งเดือน? การแก้ไขมือในเดือนนี้จะหาย` : `จัดเวร ${thaiMonthLabel(month)} อัตโนมัติ?`,
-      later.length ? `\n\nเดือนหลังจากนี้ (${later.map(thaiMonthLabel).join(', ')}) จัดไว้แล้ว ควรจัดใหม่ตามลำดับด้วย` : '',
-    ].join('');
-    if (!confirm(msg)) return;
-    setBusy(true);
+  const run = async (action: MonthAction, byId: string) => {
+    const by = people.get(byId)?.name ?? byId;
     await new Promise((r) => setTimeout(r, 30));
-    try {
-      const r = generateBest(state, requests, month);
-      const next = clone(state);
+    if (action === 'undo') {
+      await commit(undoMonth(state, month, by));
+      return;
+    }
+    let next: AppState;
+    if (action === 'clear') {
+      next = clearMonth(state, month);
+    } else {
+      const r = generateBest(state, requests, month, action === 'extra' ? 2 : 4, Date.now(), action);
+      next = clone(state);
       next.days = r.days;
       next.months[month] = r.record;
       const latest = Object.keys(state.months).sort().pop() ?? month;
       if (month >= latest) next.queues = r.queues;
-      await commit(next);
-    } finally {
-      setBusy(false);
     }
+    await commit(withHistory(state, next, month, by, ACTION_LABEL[action]));
   };
+  const log = state.monthLog?.[month] ?? [];
+  const lastLog = log[log.length - 1];
+  const stages = new Set(record?.stages ?? (record ? ['extra', 'weekend', 'rest'] : []));
 
   const setCell = async (date: string, col: Col, id: string | null) => {
     const next = clone(state);
@@ -71,18 +75,29 @@ export function ScheduleView({ state, commit, requests, month }: Ctx) {
   return (
     <div>
       <div className="toolbar no-print">
-        <button className="btn-primary" onClick={generate} disabled={busy}>
-          {busy ? 'กำลังจัด…' : record ? '🔄 จัดใหม่อัตโนมัติ' : '✨ จัดเวรอัตโนมัติ'}
+        <button className="btn-primary" onClick={() => setDialog(true)}>
+          ⚙️ จัดเวร…
         </button>
         <button className="btn" onClick={() => window.print()}>
           🖨️ พิมพ์
         </button>
       </div>
-      {!record && (
-        <p className="muted no-print">
-          เดือนนี้ยังไม่ได้จัด
-          {!state.months[shiftMonth(month, -1)] && ' (เดือนก่อนหน้ายังไม่ได้จัด ระบบจะใช้คิวปัจจุบัน)'}
+      <div className="month-status no-print">
+        <span className={stages.has('extra') ? 'st done' : 'st'}>เสริม</span>
+        <span className={stages.has('weekend') ? 'st done' : 'st'}>เสาร์–อาทิตย์/วันหยุด</span>
+        <span className={stages.has('rest') ? 'st done' : 'st'}>วันธรรมดา + SMC</span>
+      </div>
+      {lastLog ? (
+        <p className="small no-print">
+          ล่าสุด: <b>{lastLog.by}</b> — {lastLog.action} ({formatWhen(lastLog.at)})
         </p>
+      ) : (
+        !record && (
+          <p className="muted no-print">
+            เดือนนี้ยังไม่ได้จัด
+            {!state.months[shiftMonth(month, -1)] && ' (เดือนก่อนหน้ายังไม่ได้จัด ระบบจะใช้คิวปัจจุบัน)'}
+          </p>
+        )
       )}
 
       <h2 className="print-title">ตารางเวร {thaiMonthLabel(month)}</h2>
@@ -204,6 +219,21 @@ export function ScheduleView({ state, commit, requests, month }: Ctx) {
           )}
         </section>
       )}
+
+      {log.length > 0 && (
+        <section className="card no-print">
+          <h3>ประวัติการจัดเวรเดือนนี้</h3>
+          <ul className="info">
+            {[...log].reverse().map((e, k) => (
+              <li key={k}>
+                {formatWhen(e.at)} — <b>{e.by}</b> {e.action}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {dialog && <GenerateDialog state={state} month={month} onClose={() => setDialog(false)} onRun={run} />}
 
       {edit && (
         <Modal title={`${thaiDateLabel(edit.date)} · ${SLOT_LABEL[edit.col]}`} onClose={() => setEdit(null)}>
