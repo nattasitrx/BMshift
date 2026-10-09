@@ -1,15 +1,23 @@
 import { useEffect, useState } from 'react';
 import { thaiDateLabel, thaiMonthLabel, weekday } from '../engine/dates';
 import { normalizeQueues } from '../engine/generate';
+import { suggestHolidays, type HolidaySuggestion } from '../engine/holidayGen';
 import { changedMonths, describeChange } from '../engine/holidayCheck';
 import { seedState } from '../engine/seed';
 import { SLOT_LABEL, SLOTS, TEMPLATE_KIND_LABEL, type AppState, type Holiday, type Template, type TemplateKind } from '../engine/types';
 import { newId } from './api';
 import type { Ctx } from './App';
-import { clone, textOn } from './common';
+import { clone, Modal, textOn } from './common';
 
-type Draft = Pick<AppState, 'people' | 'holidays' | 'templates' | 'settings'>;
-const pick = (s: AppState): Draft => clone({ people: s.people, holidays: s.holidays, templates: s.templates, settings: s.settings });
+type Draft = Pick<AppState, 'people' | 'holidays' | 'templates' | 'settings' | 'holidayDismissed'>;
+const pick = (s: AppState): Draft =>
+  clone({
+    people: s.people,
+    holidays: s.holidays,
+    templates: s.templates,
+    settings: s.settings,
+    holidayDismissed: s.holidayDismissed ?? [],
+  });
 
 export function SettingsView({ state, commit }: Ctx) {
   const [d, setD] = useState<Draft>(() => pick(state));
@@ -164,6 +172,17 @@ function HolidaySection({ d, update }: SectionProps) {
   const years = [...new Set(d.holidays.map((h) => h.date.slice(0, 4)))].sort();
   const [year, setYear] = useState(years[0] ?? String(new Date().getFullYear()));
   const [h, setH] = useState<Holiday>({ date: '', name: '' });
+  const [fill, setFill] = useState<{ items: HolidaySuggestion[]; picked: Set<string> } | null>(null);
+  const pendingCount = d.holidays.filter((x) => x.pending).length;
+  const openFill = () => {
+    const items = suggestHolidays(d.holidays, d.holidayDismissed ?? [], Number(year));
+    setFill({ items, picked: new Set(items.filter((x) => !x.exists && !x.dismissed).map((x) => x.holiday.date)) });
+  };
+  const remove = (i: number) =>
+    update((s) => {
+      const [gone] = s.holidays.splice(i, 1);
+      if (gone?.auto) s.holidayDismissed = [...new Set([...(s.holidayDismissed ?? []), gone.date])];
+    });
   const list = d.holidays
     .map((x, i) => ({ ...x, i }))
     .filter((x) => x.date.startsWith(year))
@@ -172,8 +191,14 @@ function HolidaySection({ d, update }: SectionProps) {
     <section className="card">
       <h3>วันหยุดราชการ</h3>
       <p className="muted small">
-        ใส่ตามประกาศรัฐบาล รวมวันชดเชยและวันหยุดพิเศษ (วันหยุดทางพุทธศาสนายังไม่ได้ใส่ให้) · ติ๊กปีใหม่/สงกรานต์เพื่อใช้แพทเทิร์นเทศกาล
+        กด "เติมวันหยุดประจำปี" ให้ระบบใส่วันหยุดตายตัว วันพระ และวันชดเชยให้ แล้วเพิ่มวันหยุดพิเศษตามประกาศ ครม. และวันพืชมงคลเอง ·
+        ติ๊กปีใหม่/สงกรานต์เพื่อใช้แพทเทิร์นเทศกาล
       </p>
+      {pendingCount > 0 && (
+        <p className="small pending-note">
+          มี {pendingCount} วันที่ <span className="badge-pending">รอตรวจ</span> — เทียบกับประกาศทางการ แล้วกด ✓ ยืนยัน หรือแก้วันที่
+        </p>
+      )}
       <div className="seg">
         {[...new Set([...years, year])].sort().map((y) => (
           <button key={y} className={y === year ? 'seg-on' : ''} onClick={() => setYear(y)}>
@@ -182,11 +207,21 @@ function HolidaySection({ d, update }: SectionProps) {
         ))}
         <button onClick={() => setYear(String(Number(year) + 1))}>+</button>
       </div>
+      <button className="btn" onClick={openFill} style={{ marginTop: 8 }}>
+        ✨ เติมวันหยุดประจำปี {Number(year) + 543}
+      </button>
       <ul className="hol-list">
         {list.map((x) => (
           <li key={x.i}>
             <span className="nowrap">{thaiDateLabel(x.date)}</span>
-            <span className="grow">{x.name}</span>
+            <span className="grow">
+              {x.name} {x.pending && <span className="badge-pending">รอตรวจ</span>}
+            </span>
+            {x.pending && (
+              <button className="btn-ghost" onClick={() => update((s) => delete s.holidays[x.i].pending)} title="ตรงกับประกาศแล้ว">
+                ✓ ยืนยัน
+              </button>
+            )}
             <select
               value={x.festival ?? ''}
               onChange={(e) =>
@@ -201,7 +236,7 @@ function HolidaySection({ d, update }: SectionProps) {
               <option value="newyear">ปีใหม่</option>
               <option value="songkran">สงกรานต์</option>
             </select>
-            <button className="btn-ghost" onClick={() => update((s) => s.holidays.splice(x.i, 1))} aria-label="ลบ">
+            <button className="btn-ghost" onClick={() => remove(x.i)} aria-label="ลบ">
               ✕
             </button>
           </li>
@@ -235,6 +270,57 @@ function HolidaySection({ d, update }: SectionProps) {
         </button>
       </form>
       {h.date && [0, 6].includes(weekday(h.date)) && <p className="muted small">วันนี้ตรงกับเสาร์/อาทิตย์ อย่าลืมเพิ่มวันชดเชย</p>}
+
+      {fill && (
+        <Modal title={`เติมวันหยุดปี ${Number(year) + 543}`} onClose={() => setFill(null)}>
+          <p className="muted small">
+            เลือกวันที่จะเพิ่ม (วันที่มีอยู่แล้วจะไม่ถูกทับ) · <span className="badge-pending">รอตรวจ</span> = วันพระที่คำนวณจากจันทรคติ
+            หรือวันชดเชยที่ต้องเทียบกับประกาศ
+          </p>
+          <ul className="hol-list">
+            {fill.items.map((x) => {
+              const disabled = x.exists || x.dismissed;
+              return (
+                <li key={x.holiday.date} className={disabled ? 'muted' : ''}>
+                  <input
+                    type="checkbox"
+                    disabled={disabled}
+                    checked={fill.picked.has(x.holiday.date)}
+                    onChange={(e) => {
+                      const picked = new Set(fill.picked);
+                      if (e.target.checked) picked.add(x.holiday.date);
+                      else picked.delete(x.holiday.date);
+                      setFill({ ...fill, picked });
+                    }}
+                    aria-label={x.holiday.name}
+                  />
+                  <span className="nowrap">{thaiDateLabel(x.holiday.date)}</span>
+                  <span className="grow">
+                    {x.holiday.name} {x.holiday.pending && <span className="badge-pending">รอตรวจ</span>}
+                    {x.holiday.festival && <span className="muted small"> ({x.holiday.festival === 'newyear' ? 'ปีใหม่' : 'สงกรานต์'})</span>}
+                  </span>
+                  {x.exists && <span className="small">มีแล้ว</span>}
+                  {x.dismissed && <span className="small">เคยลบออก</span>}
+                </li>
+              );
+            })}
+          </ul>
+          <button
+            className="btn-primary wide"
+            disabled={fill.picked.size === 0}
+            onClick={() => {
+              update((s) => {
+                const add = fill.items.filter((x) => fill.picked.has(x.holiday.date)).map((x) => x.holiday);
+                s.holidays = [...s.holidays.filter((x) => !fill.picked.has(x.date)), ...add];
+                s.holidayDismissed = (s.holidayDismissed ?? []).filter((d) => !fill.picked.has(d));
+              });
+              setFill(null);
+            }}
+          >
+            เพิ่ม {fill.picked.size} วัน (แล้วกดบันทึกการตั้งค่า)
+          </button>
+        </Modal>
+      )}
     </section>
   );
 }

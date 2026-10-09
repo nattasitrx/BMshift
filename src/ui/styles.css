@@ -974,3 +974,20 @@ table {
   padding: 0 2px;
   line-height: 1.2;
 }
+
+.badge-pending {
+  display: inline-block;
+  font-size: 11px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #fff3cd;
+  color: #7a5b00;
+  border: 1px solid #f0d58a;
+  white-space: nowrap;
+}
+
+.pending-note {
+  background: #fff8e1;
+  border-radius: 8px;
+  padding: 6px 10px;
+}

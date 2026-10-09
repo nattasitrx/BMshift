@@ -55,6 +55,7 @@ export function ScheduleView({ state, commit, requests, month }: Ctx) {
     await commit(withHistory(state, next, month, by, ACTION_LABEL[action]));
   };
   const holChange = holidayChange(state, month);
+  const pendingHol = state.holidays.filter((h) => h.pending && h.date.startsWith(month));
   const log = state.monthLog?.[month] ?? [];
   const lastLog = log[log.length - 1];
   const stages = new Set(record?.stages ?? (record ? ['extra', 'weekend', 'rest'] : []));
@@ -93,6 +94,12 @@ export function ScheduleView({ state, commit, requests, month }: Ctx) {
             กด ⚙️ จัดเวร… แล้วเลือก "จัดเสาร์–อาทิตย์และวันหยุด" (ตามด้วยจัดวันธรรมดา) หรือ "จัดทั้งหมดใหม่"
           </div>
         </div>
+      )}
+      {pendingHol.length > 0 && (
+        <p className="small pending-note no-print">
+          <span className="badge-pending">รอตรวจ</span> วันหยุดเดือนนี้ที่ยังไม่ได้เทียบกับประกาศ:{' '}
+          {pendingHol.map((h) => `${thaiDateLabel(h.date)} ${h.name}`).join(', ')} — ตรวจในหน้าตั้งค่า
+        </p>
       )}
       <div className="month-status no-print">
         <span className={stages.has('extra') ? 'st done' : 'st'}>เสริม</span>

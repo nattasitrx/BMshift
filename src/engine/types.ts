@@ -73,6 +73,10 @@ export interface Holiday {
   date: string;
   name: string;
   festival?: 'newyear' | 'songkran';
+  /** ระบบเติมให้อัตโนมัติ */
+  auto?: boolean;
+  /** ยังต้องตรวจกับประกาศทางการ (เช่น วันพระที่คำนวณ หรือวันชดเชยต่อกันหลายวัน) */
+  pending?: boolean;
 }
 
 export type DayAssign = Partial<Record<Slot | 'SMC', string>> & { note?: string };
@@ -151,6 +155,8 @@ export interface AppState {
   festivals: FestivalRecord[];
   /** ใครอยู่ปีใหม่ ใครอยู่สงกรานต์ (เลือกเองในแท็บเทศกาล) */
   festivalGroup: Record<string, FestivalKind>;
+  /** วันหยุดที่ระบบเติมให้แต่มีคนลบออก (จะไม่เสนอซ้ำ) */
+  holidayDismissed?: string[];
   /** ประวัติว่าใครกดจัด/ล้าง/ย้อนกลับ แต่ละเดือน */
   monthLog?: Record<string, LogEntry[]>;
   /** สำเนาก่อนการกดครั้งล่าสุดของแต่ละเดือน (สำหรับปุ่มย้อนกลับ) */
