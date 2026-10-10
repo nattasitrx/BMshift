@@ -10,6 +10,7 @@ import { rateFor, slipFor } from '../src/engine/pay';
 import { personHistory, queueLastUse, weekendRoleLabel, weekendRoleLoad } from '../src/engine/usage';
 import { applyDeal, cellMarks, dealRenames, shiftsOf, type MarketOffer, type MarketPost } from '../src/engine/market';
 import { seedState, SEED_HOLIDAYS, SEED_TEMPLATES } from '../src/engine/seed';
+import { borrowIn, borrowOut, monthTotals } from '../src/engine/borrow';
 import { findIssues, summarizeMonth } from '../src/engine/summary';
 import { SLOTS, type AppState, type GenerateMode, type ShiftRequest } from '../src/engine/types';
 
@@ -608,5 +609,50 @@ describe('ตลาดเวร: แก้ชื่อ / ไม่แก้ช�
     expect(logged.days).toBe(s.days);
     expect(slipFor(logged, '2026-11', 'alex').count).toBe(before);
     expect(logged.monthLog?.['2026-11']?.[0].action).toContain('ไม่แก้ชื่อ');
+  });
+});
+
+describe('ยืมเวร (borrow carry-over)', () => {
+  it('records base targets and balances actual − target', () => {
+    let s = arrangeAll(seedState());
+    s = apply(s, '2026-12').state;
+    const rec = s.months['2026-12'];
+    expect(rec.baseTargets).toBeDefined();
+    const out = borrowOut(s, '2026-12');
+    const totals = monthTotals(s, '2026-12');
+    for (const [id, t] of Object.entries(rec.baseTargets!)) {
+      expect(out[id] ?? 0).toBe((totals.get(id) ?? 0) - t);
+    }
+    // ยืม/ให้ยืมหักล้างกันพอดี
+    expect(Object.values(out).reduce((a, b) => a + b, 0)).toBe(0);
+  });
+
+  it('carries a manual opening balance into next month targets', () => {
+    let s = seedState();
+    const [a, b] = s.people.filter((p) => p.active).map((p) => p.id);
+    s = { ...s, borrowStart: { '2027-02': { [a]: 1, [b]: -1 } } };
+    expect(borrowIn(s, '2027-02')).toEqual({ [a]: 1, [b]: -1 });
+    s = apply(s, '2027-02').state;
+    const totals = monthTotals(s, '2027-02');
+    const base = s.months['2027-02'].baseTargets!;
+    // คนยืมอยู่น้อยลง 1 คนให้ยืมอยู่เพิ่ม 1 → ยอดสิ้นเดือนกลับเป็น 0
+    expect(totals.get(a)).toBe(base[a] - 1);
+    expect(totals.get(b)).toBe(base[b] + 1);
+    const out = borrowOut(s, '2027-02');
+    expect(out[a] ?? 0).toBe(0);
+    expect(out[b] ?? 0).toBe(0);
+    expect(s.months['2027-02'].info.some((i) => i.startsWith('ยืมเวรยกมา'))).toBe(true);
+  });
+
+  it('a manual edit after generating changes the balance', () => {
+    let s = apply(seedState(), '2027-02').state;
+    const d = '2027-02-02';
+    const before = s.days[d].PM!;
+    const other = s.people.find((p) => p.active && p.id !== before)!.id;
+    const out0 = borrowOut(s, '2027-02');
+    s = { ...s, days: { ...s.days, [d]: { ...s.days[d], PM: other } } };
+    const out1 = borrowOut(s, '2027-02');
+    expect((out1[before] ?? 0) - (out0[before] ?? 0)).toBe(-1);
+    expect((out1[other] ?? 0) - (out0[other] ?? 0)).toBe(1);
   });
 });

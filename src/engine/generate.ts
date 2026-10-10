@@ -1,5 +1,6 @@
 import { detectBlocks, holidayMap, isOffDay, pickTemplate, templateCells, templateLetters, type Cell, type DetectedBlock } from './blocks';
 import { BIT, COUNTED, maskCost, popcount, type CostCtx } from './cost';
+import { adjustedTarget, borrowIn, describeBalance } from './borrow';
 import { addDays, dateRange, daysInMonth, monthOf, nthWeekdayOfMonth, thaiDateLabel, weekday } from './dates';
 import { mulberry32, randInt, shuffle, type Rng } from './rng';
 import { holidaySignature } from './holidayCheck';
@@ -398,6 +399,7 @@ export function generateMonth(
   const weekendRoles: Record<string, WeekendRole[]> = clearsWeekend ? {} : clone(old?.weekendRoles ?? {});
   let noWeekend: string[] = clearsWeekend ? [] : (old?.noWeekend ?? []);
   let totalPlusIds: string[] = old?.totalPlus ?? [];
+  let baseTargets: Record<string, number> | undefined;
   let nightPlusIds: string[] = old?.nightPlus ?? [];
   let twoWeekend: string[] = clearsWeekend ? [] : (old?.twoWeekend ?? []);
   const wkBlocks = blocks.filter((x) => x.kind === 'weekend');
@@ -629,7 +631,11 @@ export function generateMonth(
     const nightPlus = new Set(takeFromQueue(q.nightExtra, NT % A, [isActive]));
     totalPlusIds = [...totalPlus];
     nightPlusIds = [...nightPlus];
-    const target = activeIds.map((id) => Math.floor(T / A) + (totalPlus.has(id) ? 1 : 0));
+    const base = activeIds.map((id) => Math.floor(T / A) + (totalPlus.has(id) ? 1 : 0));
+    baseTargets = Object.fromEntries(activeIds.map((id, p) => [id, base[p]]));
+    // ยืมเวร: ยอดยกมาจากเดือนก่อนปรับเป้าเดือนนี้
+    const carry = borrowIn(state, month);
+    const target = activeIds.map((id, p) => adjustedTarget(base[p], carry[id] ?? 0));
     const nTarget = activeIds.map((id) => Math.floor(NT / A) + (nightPlus.has(id) ? 1 : 0));
     note(
       `เวรรวม ${T} เวร: คนละ ${Math.floor(T / A)}` +
@@ -638,6 +644,11 @@ export function generateMonth(
     note(
       `ดึก ${NT} เวร: คนละ ${Math.floor(NT / A)}` + (nightPlus.size ? ` (+1: ${[...nightPlus].map(nameOf).join(', ')})` : ''),
     );
+    const carried = describeBalance(
+      Object.fromEntries(activeIds.map((id) => [id, carry[id] ?? 0])),
+      nameOf,
+    );
+    if (carried) note(`ยืมเวรยกมา (คนยืมอยู่น้อยลง คนให้ยืมอยู่เพิ่ม): ${carried}`);
 
     const pm = activeIds.map((id) => [...masks.get(id)!]);
     const pctx = activeIds.map((id) => ctx.get(id)!);
@@ -743,6 +754,16 @@ export function generateMonth(
       if (p === undefined || p < 0) return;
       days[f.date] = { ...(days[f.date] ?? {}), [f.slot]: activeIds[p] };
     });
+    const actual = new Map<string, number>();
+    for (const d of mDays) for (const s of ['O', 'I', 'PM', 'N'] as const) {
+      const id = days[d]?.[s];
+      if (id) actual.set(id, (actual.get(id) ?? 0) + 1);
+    }
+    const out = describeBalance(
+      Object.fromEntries(activeIds.map((id) => [id, (carry[id] ?? 0) + (actual.get(id) ?? 0) - baseTargets![id]])),
+      nameOf,
+    );
+    note(out ? `ยืมเวรยกไปเดือนหน้า: ${out}` : 'ไม่มียอดยืมเวรค้าง');
   }
 
   // ---- 5. SMC ตามคิว (ไม่ใช่คนเดียวกับบ่าย/ดึกของวันนั้น) ----
@@ -791,6 +812,7 @@ export function generateMonth(
       noWeekend,
       twoWeekend,
       totalPlus: totalPlusIds,
+      baseTargets: doRest ? baseTargets : doneStages.includes('rest') ? old?.baseTargets : undefined,
       nightPlus: nightPlusIds,
       info: flat('info'),
       warnings: [...flat('warnings'), ...checks],
@@ -842,7 +864,12 @@ export function generateBest(
       }
     }
     const vals = state.people.filter((p) => p.active).map((p) => totals.get(p.id) ?? 0);
-    const spread = Math.max(...vals) - Math.min(...vals);
+    // มีเป้า (หักยอดยืมแล้ว) → วัดว่าห่างเป้าแค่ไหน, ไม่มี → วัดว่ายอดต่างกันแค่ไหน
+    const base = r.record.baseTargets;
+    const carry = base ? borrowIn(state, month) : {};
+    const spread = base
+      ? Object.entries(base).reduce((sum, [id, t]) => sum + Math.abs((totals.get(id) ?? 0) - adjustedTarget(t, carry[id] ?? 0)), 0)
+      : Math.max(...vals) - Math.min(...vals);
     const score = errors * 10_000 + spread * 100 + warns;
     if (!best || score < best.score) best = { r, score };
   }

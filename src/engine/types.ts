@@ -143,6 +143,8 @@ export interface MonthRecord {
   /** ใครได้ +1 เวรรวม / +1 ดึก ในเดือนนี้ (คิวเวรรวมเกิน/ดึกเกิน) */
   totalPlus?: string[];
   nightPlus?: string[];
+  /** เป้าเวรรวมปกติของแต่ละคน (ก่อนหักยอดยืม) ใช้คำนวณยอดยืมสิ้นเดือน */
+  baseTargets?: Record<string, number>;
   /** สรุปว่าระบบตัดสินใจอะไรจากคิว เช่น ใครไม่อยู่ ส-อา */
   info: string[];
   warnings: string[];
@@ -182,6 +184,8 @@ export interface AppState {
   holidayDismissed?: string[];
   /** ประวัติว่าใครกดจัด/ล้าง/ย้อนกลับ แต่ละเดือน */
   monthLog?: Record<string, LogEntry[]>;
+  /** ยอดยืมเวรยกมาที่กรอกเอง (แทนค่าที่คำนวณจากเดือนก่อน) + = ยืมมา, − = ให้ยืม */
+  borrowStart?: Record<string, Record<string, number>>;
   /** กำหนดส่งข้อมูลไม่ว่าง/ขออยู่ของแต่ละเดือน (ตั้งโดยคนจัดเวรเดือนนั้น) */
   calls?: Record<string, RequestCall>;
   /** สำเนาก่อนการกดครั้งล่าสุดของแต่ละเดือน (สำหรับปุ่มย้อนกลับ) */

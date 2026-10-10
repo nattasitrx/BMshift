@@ -15,6 +15,7 @@ import { PrintSheet } from './PrintSheet';
 import { listMarket } from './api';
 import { cellMarks, type MarketOffer, type MarketPost } from '../engine/market';
 import { weekendRoleLabel } from '../engine/usage';
+import { borrowIn, borrowOut, signed } from '../engine/borrow';
 
 type Col = Slot | 'SMC';
 const COLS: Col[] = ['O', 'I', 'S', 'PM', 'N', 'SMC'];
@@ -38,6 +39,9 @@ export function ScheduleView({ state, mode, commit, requests, month }: Ctx) {
     [state.days, state.people, requests, month, state.holidays],
   );
   const summary = useMemo(() => summarizeMonth(state, month), [state, month]);
+  const carryIn = useMemo(() => borrowIn(state, month), [state, month]);
+  const carryOut = useMemo(() => borrowOut(state, month), [state, month]);
+  const showBorrow = Object.keys(carryIn).length > 0 || Object.keys(carryOut).length > 0;
   const reqByDate = new Map<string, { off: string[]; want: string[] }>();
   for (const r of requests) {
     const e = reqByDate.get(r.date) ?? { off: [], want: [] };
@@ -229,6 +233,7 @@ export function ScheduleView({ state, mode, commit, requests, month }: Ctx) {
                 <th>เสริม</th>
                 <th>SMC</th>
                 <th>ส-อา</th>
+                {showBorrow && <th>ยืม</th>}
               </tr>
             </thead>
             <tbody>
@@ -246,12 +251,22 @@ export function ScheduleView({ state, mode, commit, requests, month }: Ctx) {
                   <td>{r.extra}</td>
                   <td>{r.smc}</td>
                   <td className="nowrap">{r.weekendRoles.map((x) => weekendRoleLabel(state, x)).join(', ') || '–'}</td>
+                  {showBorrow && (
+                    <td className="nowrap">
+                      <BorrowCell v={carryOut[r.id] ?? 0} />
+                      {carryIn[r.id] ? <span className="muted small"> (ยกมา {signed(carryIn[r.id])})</span> : null}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        <p className="muted small">เวรรวม = OPD + IPD + บ่าย + ดึก (ไม่นับเสริมและ SMC) นับตามวันที่ในเดือนนี้</p>
+        <p className="muted small">
+          เวรรวม = OPD + IPD + บ่าย + ดึก (ไม่นับเสริมและ SMC) นับตามวันที่ในเดือนนี้
+          {showBorrow &&
+            ' · ยืม = ยอดยกไปเดือนหน้า: +1 ยืมเขามา (อยู่เกินเป้าเพราะแพทเทิร์น เดือนหน้าอยู่น้อยลง 1) / −1 ให้ยืม (เดือนหน้าอยู่เพิ่ม 1) · แก้ยอดยกมาได้ในแท็บคิว'}
+        </p>
       </section>
 
       {record && (
@@ -335,4 +350,9 @@ export function ScheduleView({ state, mode, commit, requests, month }: Ctx) {
       )}
     </div>
   );
+}
+
+function BorrowCell({ v }: { v: number }) {
+  if (!v) return <span className="muted">–</span>;
+  return <span className={v > 0 ? 'borrow-plus' : 'borrow-minus'}>{v > 0 ? `ยืม ${v}` : `ให้ยืม ${-v}`}</span>;
 }
