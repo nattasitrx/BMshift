@@ -1522,3 +1522,19 @@ tr.clickable {
   color: #fff;
   font-weight: 600;
 }
+
+.mark-note {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  background: #fff8e1;
+  border: 1px solid #ffe082;
+  border-radius: 10px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+}
+
+.mark-note-icon {
+  font-size: 20px;
+  line-height: 1;
+}

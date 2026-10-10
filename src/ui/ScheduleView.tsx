@@ -197,7 +197,7 @@ export function ScheduleView({ state, mode, commit, requests, month }: Ctx) {
 
       {marks.size > 0 && (
         <p className="muted small no-print">
-          🏷️ มีประกาศขาย · 🔄 มีประกาศหาแลก · 🤝 ขาย/แลกแล้วแบบไม่แก้ชื่อ (ชื่อในตาราง = คนรับเงิน) — แตะค้าง/ชี้เพื่อดูรายละเอียด
+          🏷️ มีประกาศขาย · 🔄 มีประกาศหาแลก · 🤝 ขาย/แลกแล้วแบบไม่แก้ชื่อ (ชื่อในตาราง = คนรับเงิน) — แตะช่องเพื่อดูว่าใครอยู่จริง
           ไปที่แท็บตลาด
         </p>
       )}
@@ -291,6 +291,12 @@ export function ScheduleView({ state, mode, commit, requests, month }: Ctx) {
 
       {edit && (
         <Modal title={`${thaiDateLabel(edit.date)} · ${SLOT_LABEL[edit.col]}`} onClose={() => setEdit(null)}>
+          {marks.get(`${edit.date}|${edit.col}`) && (
+            <div className="mark-note">
+              <span className="mark-note-icon">{marks.get(`${edit.date}|${edit.col}`)!.icon}</span>
+              <span>{marks.get(`${edit.date}|${edit.col}`)!.title}</span>
+            </div>
+          )}
           <label className="field editor-field">
             แก้โดย
             <select value={editor} onChange={(e) => setEditor(e.target.value)}>
